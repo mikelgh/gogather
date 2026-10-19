@@ -27,6 +27,12 @@
   .row>div{flex:1}
   .submit{margin-top:18px;width:100%;padding:14px;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:#fff;background:linear-gradient(120deg,var(--brand),var(--brand2))}
   .submit:disabled{opacity:.6;cursor:not-allowed}
+  .submit-row{display:flex;gap:12px;margin-top:18px}
+  .submit-row .submit{margin-top:0;flex:2}
+  .ghost{flex:1;padding:14px;border:1px solid var(--brand);background:#fff;border-radius:12px;cursor:pointer;font-size:15px;font-weight:600;color:var(--brand)}
+  .ghost:hover{background:#ecfeff}
+  .innovate{font-size:14px;color:var(--ink);background:linear-gradient(120deg,#ecfeff,#f0fdfa);border-color:#a5f3fc;line-height:1.7}
+  .innovate strong{color:#0e7490}
   .hint{font-size:12px;color:var(--sub);margin-top:8px}
   .result{display:none}
   .result h2{margin:0 0 4px;font-size:20px}
@@ -91,8 +97,15 @@
         </div>
       </div>
 
-      <button class="submit" id="go" onclick="runPlan()">生成出行方案</button>
-      <div class="hint">飞猪 AI 开放平台体验模式即可出结果；配置百炼 Key 后方案由通义千问润色。</div>
+      <div class="submit-row">
+        <button class="submit" id="go" onclick="runPlan()">生成出行方案</button>
+        <button class="ghost" id="demo" onclick="loadDemo()">✨ 一键示例</button>
+      </div>
+      <div class="hint">飞猪 AI 开放平台体验模式即可出结果；配置百炼 Key 后方案由通义千问润色。点「一键示例」可秒看真实场景方案。</div>
+    </div>
+
+    <div class="card innovate">
+      <strong>💡 创新点</strong>：聚行不规划"去哪玩"，而是围绕 <strong>一场活动 / 聚会</strong> 来规划出行——替团体操心统一预订、集体签到接驳、分组动线与聚餐，把"订一堆零散东西"变成"一份可分享的方案"。
     </div>
 
     <div class="card result" id="resultCard">
@@ -116,6 +129,17 @@ function setMode(m){
   MODE = m;
   document.getElementById('m-event').classList.toggle('active', m==='event');
   document.getElementById('m-explore').classList.toggle('active', m==='explore');
+}
+
+function loadDemo(){
+  setMode('event');
+  document.getElementById('city').value = '广州';
+  document.getElementById('check_in').value = '2026-10-25';
+  document.getElementById('check_out').value = '2026-10-26';
+  document.getElementById('origin').value = '';
+  document.getElementById('group_size').value = '30 人';
+  document.getElementById('vibe').value = '中山大学校友 30 周年聚会，安静有纪念意义';
+  runPlan();
 }
 
 function mdToHtml(md){
@@ -150,6 +174,7 @@ async function runPlan(){
   if(!city){ alert('请填写城市'); return; }
   btn.disabled = true; btn.textContent = '生成中…';
   card.style.display='block';
+  card.scrollIntoView({behavior:'smooth', block:'start'});
   rendered.innerHTML = '<div class="loading">正在向飞猪 AI 拉取真实数据并生成方案…</div>';
   const payload = {
     mode: MODE,
