@@ -41,23 +41,44 @@ def _run(subcommand: str, options: dict) -> dict:
     if config.FLYAI_API_KEY:
         env["FLYAI_API_KEY"] = config.FLYAI_API_KEY
 
+    cmd_str = (
+        subprocess.list2cmdline(cmd)
+        if sys.platform.startswith("win")
+        else " ".join(cmd)
+    )
+
     try:
         if sys.platform.startswith("win"):
-            # Windows 下 npx / flyai 均为 .cmd，需用 cmd /c 执行
+            # Windows 下 npx / flyai 均为 .cmd，需用 cmd /c 执行。
+            # 关键：显式 UTF-8 解码，否则中文 Windows 默认 GBK 会把 flyai 的 UTF-8
+            # 输出解崩（UnicodeDecodeError），stdout 被吞成空 -> status=-1 no output。
             proc = subprocess.run(
-                subprocess.list2cmdline(cmd),
+                cmd_str,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=90,
                 env=env,
                 shell=True,
             )
         else:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=90, env=env
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=90,
+                env=env,
             )
     except subprocess.TimeoutExpired:
-        return {"data": "", "status": -2, "message": "timeout", "systemMessage": ""}
+        return {
+            "data": "",
+            "status": -2,
+            "message": "timeout (90s)，flyai 调用超时",
+            "systemMessage": "",
+        }
     except FileNotFoundError:
         return {
             "data": "",
@@ -67,11 +88,16 @@ def _run(subcommand: str, options: dict) -> dict:
         }
 
     out = (proc.stdout or "").strip()
+    err = (proc.stderr or "").strip()
     if not out:
+        # 把真实报错带回（脱敏 Key），避免只显示 "no output" 无从排查
+        detail = err or "no output"
+        if config.FLYAI_API_KEY:
+            detail = detail.replace(config.FLYAI_API_KEY, "***")
         return {
             "data": "",
             "status": -1,
-            "message": (proc.stderr or "").strip() or "no output",
+            "message": f"{detail}（rc={proc.returncode}）",
             "systemMessage": "",
         }
     try:

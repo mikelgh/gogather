@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import planner
+from . import config, planner
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -30,6 +30,18 @@ class SearchRequest(BaseModel):
 @app.get("/")
 def index():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+
+
+@app.get("/api/health")
+def api_health():
+    """诊断用：确认运行中的进程是否加载到 Key（不返回明文）。"""
+    from . import flyai_client
+
+    return {
+        "flyai_key_loaded": bool(config.FLYAI_API_KEY),
+        "dashscope_key_loaded": bool(config.DASHSCOPE_API_KEY),
+        "flyai_prefix": config.resolve_flyai_prefix(),
+    }
 
 
 @app.post("/api/plan")
