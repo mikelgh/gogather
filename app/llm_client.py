@@ -8,9 +8,14 @@
 任何来自模型自身知识（等同于"其他渠道"）的补充内容，必须显式标注为
 【建议·非飞猪数据，仅供参考，使用前请核实】。
 """
+import json as _json
+import logging
+
 import httpx
 
 from . import config
+
+log = logging.getLogger(__name__)
 
 # ── 两个场景共用的「数据纪律」硬约束 ──────────────────────────
 _DATA_DISCIPLINE = """\
@@ -88,10 +93,44 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 3000):
         "temperature": 0.2,
     }
     try:
-        with httpx.Client(timeout=60) as client:
+        # 3000 tokens 的富方案在 qwen-plus 上常需 1-2 分钟，60s 会导致静默降级。
+        with httpx.Client(timeout=180) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
-    except Exception:
+    except Exception as e:
+        log.warning("LLM complete failed: %s: %s", type(e).__name__, e)
+        return None
+
+
+def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> dict | None:
+    """调用 LLM 并强制返回 JSON 格式。失败返回 None。"""
+    if not config.DASHSCOPE_API_KEY:
+        return None
+    url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": config.QWEN_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        with httpx.Client(timeout=120) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        text = text.lstrip("```json").rstrip("```").strip()
+        return _json.loads(text)
+    except Exception as e:
+        log.warning("LLM complete_json failed: %s: %s", type(e).__name__, e)
         return None

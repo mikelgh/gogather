@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoGather 聚行 · 方案分享</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #6366f1;
+  --primary-light: #818cf8;
+  --primary-dark: #4f46e5;
+  --primary-bg: rgba(99,102,241,0.06);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --bg: #f8f9fc;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --border-light: #f1f5f9;
+  --text: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 4px 6px -1px rgba(0,0,0,0.06);
+  --shadow-lg: 0 10px 25px -3px rgba(0,0,0,0.08);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  background: rgba(255,255,255,0.85);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.header-inner {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: block;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+}
+
+.logo-word {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.logo-cn {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted, #94a3b8);
+  padding: 1px 7px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+}
+
+.share-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 12px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  border-radius: 20px;
+  border: 1px solid rgba(99,102,241,0.12);
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.loading {
+  text-align: center;
+  padding: 100px 20px;
+  color: var(--text-muted);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-state {
+  text-align: center;
+  padding: 100px 20px;
+}
+
+.error-state h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-state p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.plan-header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  animation: fadeInUp 0.4s ease both;
+}
+
+.plan-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plan-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(16,185,129,0.1);
+  color: var(--success);
+}
+
+.plan-summary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  animation: fadeInUp 0.4s ease both;
+}
+
+.section:nth-child(2) { animation-delay: 0.1s; }
+.section:nth-child(3) { animation-delay: 0.2s; }
+.section:nth-child(4) { animation-delay: 0.3s; }
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: var(--text);
+}
+
+.timeline-item {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.timeline-item:last-child { border-bottom: none; }
+
+.timeline-time {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  padding-top: 2px;
+}
+
+.timeline-content h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.timeline-content p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.budget-card {
+  background: var(--border-light);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+}
+
+.budget-card .category {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.budget-card .amount {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.budget-card .unit {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.budget-total {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  border-radius: var(--radius);
+  padding: 18px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+}
+
+.budget-total .label { font-size: 12px; opacity: 0.85; font-weight: 500; }
+.budget-total .amount { font-size: 26px; font-weight: 700; margin: 2px 0; }
+
+.checklist-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  margin-top: 14px;
+}
+
+.checklist-group-title:first-child { margin-top: 0; }
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--border-light);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+
+.checklist-item:last-child { margin-bottom: 0; }
+
+.checklist-status {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.checklist-status.confirmed {
+  background: var(--success);
+  color: white;
+  box-shadow: 0 2px 4px rgba(16,185,129,0.3);
+}
+
+.checklist-status.confirmed::after { content: '\2713'; }
+
+.checklist-status.booking {
+  border: 2px solid var(--warning);
+  background: rgba(245,158,11,0.1);
+}
+
+.checklist-status.booking::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.checklist-status.pending {
+  border: 2px solid var(--border);
+}
+
+.checklist-status.completed {
+  background: var(--success);
+  color: white;
+}
+
+.checklist-status.completed::after { content: '\2713'; }
+
+.checklist-body { flex: 1; }
+
+.checklist-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.checklist-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.checklist-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.checklist-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.checklist-tag.price {
+  color: var(--primary);
+  font-weight: 600;
+  border-color: rgba(99,102,241,0.2);
+  background: var(--primary-bg);
+}
+
+.cta-section {
+  text-align: center;
+  padding: 36px 24px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 50%, #a78bfa 100%);
+  border-radius: var(--radius-xl);
+  color: white;
+  margin-top: 24px;
+  position: relative;
+  overflow: hidden;
+  animation: fadeInUp 0.4s ease 0.4s both;
+}
+
+.cta-section::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -30%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+}
+
+.cta-section h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.cta-section p {
+  opacity: 0.9;
+  font-size: 13px;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.cta-btn {
+  display: inline-block;
+  padding: 10px 24px;
+  background: white;
+  color: var(--primary);
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.2s;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+}
+
+.footer {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .container { padding: 16px; }
+  .plan-header { padding: 20px; }
+  .budget-grid { grid-template-columns: repeat(2, 1fr); }
+  .cta-section { padding: 28px 20px; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <img src="/logo.svg" class="logo-icon" alt="GoGather">
+      <span class="logo-word">GoGather</span>
+      <span class="logo-cn">聚行</span>
+    </div>
+    <span class="share-badge">只读分享</span>
+  </div>
+</header>
+
+<main class="container" id="app">
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    <div>加载方案中...</div>
+  </div>
+</main>
+
+<script>
+const code = window.location.pathname.split('/').pop();
+
+async function loadSharedPlan() {
+  try {
+    const resp = await fetch(`/api/share/${code}`);
+    if (!resp.ok) throw new Error('Not found');
+    const plan = await resp.json();
+    renderPlan(plan);
+  } catch (err) {
+    document.getElementById('app').innerHTML = `
+      <div class="error-state">
+        <h2>方案不存在</h2>
+        <p>分享码无效或已过期</p>
+      </div>
+    `;
+  }
+}
+
+function renderPlan(plan) {
+  const city = plan.params?.city || '';
+  const summary = plan.summary || '';
+  const timeline = plan.timeline || [];
+  const budget = plan.budget || [];
+  const actionItems = plan.action_items || [];
+
+  let html = `
+    <div class="plan-header">
+      <div class="plan-title">
+        <span>${city ? city + ' 出行方案' : '出行方案'}</span>
+        <span class="plan-badge">已生成</span>
+      </div>
+      ${summary ? `<p class="plan-summary">${summary}</p>` : ''}
+    </div>
+  `;
+
+  if (timeline.length > 0) {
+    html += `
+      <div class="section">
+        <div class="section-title">行程安排</div>
+        ${timeline.map(item => `
+          <div class="timeline-item">
+            <div class="timeline-time">${item.time_range || ''}</div>
+            <div class="timeline-content">
+              <h4>${item.title || ''}</h4>
+              ${item.notes ? `<p>${item.notes}</p>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  if (budget.length > 0) {
+    html += `
+      <div class="section">
+        <div class="section-title">预算概览</div>
+        <div class="budget-grid">
+          ${budget.map(item => `
+            <div class="budget-card">
+              <div class="category">${item.category}</div>
+              <div class="amount">${item.estimated_cost || '--'}</div>
+              <div class="unit">${item.is_per_person ? '人均' : '总计'}</div>
+            </div>
+          `).join('')}
+        </div>
+        ${plan.budget_per_person ? `
+          <div class="budget-total">
+            <div class="label">人均预算</div>
+            <div class="amount">${plan.budget_per_person}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  if (actionItems.length > 0) {
+    const groups = { hotel: '住宿', transport: '交通', activity: '活动', restaurant: '餐饮' };
+    const grouped = {};
+    actionItems.forEach(item => {
+      if (!grouped[item.type]) grouped[item.type] = [];
+      grouped[item.type].push(item);
+    });
+
+    html += `<div class="section"><div class="section-title">待办清单</div>`;
+    for (const [type, items] of Object.entries(grouped)) {
+      html += `<div class="checklist-group-title">${groups[type] || type}</div>`;
+      html += items.map(item => `
+        <div class="checklist-item">
+          <div class="checklist-status ${item.status || 'pending'}"></div>
+          <div class="checklist-body">
+            <div class="checklist-title">${item.title || ''}</div>
+            ${item.description ? `<div class="checklist-desc">${item.description}</div>` : ''}
+            <div class="checklist-meta">
+              ${item.estimated_cost ? `<span class="checklist-tag price">${item.estimated_cost}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    html += `</div>`;
+  }
+
+  html += `
+    <div class="cta-section">
+      <h3>也想创建你的出行方案？</h3>
+      <p>一句话告诉 GoGather 你的活动需求，AI 帮你安排一切</p>
+      <a href="/" class="cta-btn">立即体验 GoGather</a>
+    </div>
+    <div class="footer">由 GoGather（聚行）生成 · 数据来源飞猪</div>
+  `;
+
+  document.getElementById('app').innerHTML = html;
+}
+
+loadSharedPlan();
+</script>
+</body>
+</html>

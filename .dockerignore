@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+data/
+.git/
+.gitignore
+.env
+.iso_test/
+vibe_images/
+export/
+*.tar.gz
+*.db

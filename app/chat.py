@@ -1,0 +1,116 @@
+"""对话式规划：一句话输入 → 参数提取 → 智能追问 → 方案就绪。"""
+import json
+import re
+
+from . import llm_client as _llm
+
+EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自然语言描述中提取以下参数：
+
+必须提取的字段：
+- city: 目标城市（必填）
+- check_in: 入住日期，YYYY-MM-DD 格式
+- check_out: 退房日期，YYYY-MM-DD 格式
+- origin: 出发地
+- group_size: 人数（如 "30" 或 "30人"）
+- vibe: 氛围/偏好/主题
+- budget: 预算描述（如 "人均1000" 或 "预算友好"）
+- activity_type: 活动类型（如 "团建"、"同学聚会"、"婚礼"、"观赛"）
+
+规则：
+1. 今天是 {today}，所有相对日期（如"下周五"、"10月25日"）都转为 YYYY-MM-DD。
+2. 如果某字段未提及，设为 null。
+3. 从活动类型和上下文推断缺失信息（如"同学聚会"暗示 group_size ≥ 10）。
+4. 判断信息是否足够生成方案。最少需要：city + (check_in 或 activity_type)。
+5. 如果信息不足，生成 1-3 个简短追问，不要重复已提取的信息。
+
+严格返回 JSON（不要 markdown 代码块）：
+{{
+    "extracted": {{"city": "...", "check_in": "...", ...}},
+    "sufficient": false,
+    "follow_up": "追问内容（如果 sufficient=false）"
+}}
+"""
+
+
+def _build_extract_system() -> str:
+    from datetime import date
+    return EXTRACT_SYSTEM.format(today=date.today().isoformat())
+
+
+def _clean_json(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def extract_params(user_message: str, conversation: list[dict] | None = None) -> dict:
+    """从用户消息中提取参数。返回 {extracted, sufficient, follow_up}。"""
+    system = _build_extract_system()
+
+    history = ""
+    if conversation:
+        msgs = []
+        for m in conversation[-6:]:
+            role = "用户" if m.get("role") == "user" else "助手"
+            msgs.append(f"{role}：{m.get('content', '')}")
+        history = "\n".join(msgs) + "\n"
+
+    user_prompt = (
+        f"{history}用户最新消息：{user_message}\n\n"
+        "请提取参数并判断是否足够生成方案。"
+    )
+
+    result = _llm.complete_json(system, user_prompt)
+    if not result:
+        return {
+            "extracted": _fallback_extract(user_message),
+            "sufficient": False,
+            "follow_up": "我需要确认一下：你的目标城市是哪里？计划什么时候出发？",
+        }
+    return result
+
+
+def _fallback_extract(msg: str) -> dict:
+    """LLM 失败时的简单正则兜底。"""
+    params = {}
+    city_match = re.search(r"去(\S{2,4})(?:玩|聚|旅|出)", msg)
+    if city_match:
+        params["city"] = city_match.group(1)
+    num_match = re.search(r"(\d+)\s*人", msg)
+    if num_match:
+        params["group_size"] = num_match.group(1)
+    return params
+
+
+def merge_params(existing: dict, new_params: dict) -> dict:
+    """合并参数，新值覆盖旧值（旧值为 null 时补入新值）。"""
+    merged = dict(existing)
+    for k, v in new_params.items():
+        if v is not None and v != "":
+            merged[k] = v
+        elif k not in merged:
+            merged[k] = None
+    return merged
+
+
+def is_sufficient(params: dict) -> bool:
+    """判断参数是否足够生成方案。"""
+    if not params.get("city"):
+        return False
+    if not params.get("check_in") and not params.get("activity_type"):
+        return False
+    return True
+
+
+def params_to_plan_input(params: dict) -> dict:
+    """将提取的参数转为 planner.plan() 需要的格式。"""
+    return {
+        "mode": "event" if params.get("activity_type") else "explore",
+        "city": params.get("city", ""),
+        "check_in": params.get("check_in", ""),
+        "check_out": params.get("check_out", ""),
+        "origin": params.get("origin", ""),
+        "group_size": params.get("group_size", ""),
+        "vibe": params.get("vibe", ""),
+    }

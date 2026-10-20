@@ -18,3 +18,8 @@ node_modules/
 # Misc
 .tmp/
 tmp/
+data/
+export/
+.iso_test/
+vibe_images/
+SPR.md

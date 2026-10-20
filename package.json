@@ -1,8 +1,8 @@
 {
-  "name": "feizhu-travel-ai",
+  "name": "gogather",
   "version": "0.1.0",
   "private": true,
-  "description": "聚行 · 飞猪 AI 旅行助手 - FlyAI CLI 本地依赖",
+  "description": "GoGather 聚行 · 飞猪 AI 旅行助手 - FlyAI CLI 本地依赖",
   "dependencies": {
     "@fly-ai/flyai-cli": "latest"
   }

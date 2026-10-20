@@ -1,7 +1,7 @@
 [project]
-name = "feizhu-travel-ai"
+name = "gogather"
 version = "0.1.0"
-description = "聚行 · 飞猪×阿里云百炼 AI 旅行创新大赛参赛项目（活动/聚会出行 AI 助手）"
+description = "GoGather 聚行 · 飞猪×阿里云百炼 AI 旅行创新大赛参赛项目（活动/聚会出行 AI 助手）"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "passlib[bcrypt]>=1.7",
+    "python-jose[cryptography]>=3.3",
 ]
 
 [build-system]

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GoGather">
+  <defs>
+    <linearGradient id="gg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="0.55" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#gg)"/>
+  <path d="M10 44 L17 47" stroke="#ffffff" stroke-opacity="0.9" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M8 50 L15 53" stroke="#ffffff" stroke-opacity="0.7" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M32 10.5c-9.6 0-17.4 7.8-17.4 17.4C14.6 40.4 32 53 32 53s17.4-12.6 17.4-25.1c0-9.6-7.8-17.4-17.4-17.4z" fill="#ffffff"/>
+  <circle cx="32" cy="24" r="4.6" fill="#f472b6"/>
+  <circle cx="26" cy="33" r="4.2" fill="#38bdf8"/>
+  <circle cx="38" cy="33" r="4.2" fill="#8b5cf6"/>
+</svg>

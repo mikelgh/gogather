@@ -1,19 +1,27 @@
-"""FastAPI 应用入口：提供页面与规划接口。"""
+"""FastAPI 应用入口：页面、认证、规划、对话、实施跟踪接口。"""
 import os
+import uuid
+from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import config, planner
+from . import config, planner, chat as chat_mod
+from . import database as db
+from . import auth
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+db.init_db()
 
 app = FastAPI(title="聚行 · 飞猪 AI 旅行助手")
 
 
+# ── Request Models ────────────────────────────────────────
+
 class PlanRequest(BaseModel):
-    mode: str = "event"          # event（活动/聚会出行） | explore（目的地探索）
+    mode: str = "event"
     city: str
     check_in: str = ""
     check_out: str = ""
@@ -23,20 +31,79 @@ class PlanRequest(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    command: str = "ai-search"   # ai-search | keyword-search | search-hotel | search-poi | search-flight
+    command: str = "ai-search"
     options: dict = Field(default_factory=dict)
 
+
+class ChatRequest(BaseModel):
+    message: str
+    plan_id: str | None = None
+    conversation: list[dict] = Field(default_factory=list)
+
+
+class TaskUpdateRequest(BaseModel):
+    status: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+# ── Auth Dependency ───────────────────────────────────────
+
+def get_current_user(authorization: str | None = Header(None)) -> dict:
+    """从 Authorization header 解析 JWT，返回用户信息。"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="未登录")
+    token = authorization.removeprefix("Bearer ").strip()
+    payload = auth.decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="令牌无效或已过期")
+    return {"id": payload["sub"], "username": payload.get("username", "")}
+
+
+def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
+    """可选认证：有 token 就解析，没有就返回 None。"""
+    if not authorization:
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    payload = auth.decode_access_token(token)
+    if not payload:
+        return None
+    return {"id": payload["sub"], "username": payload.get("username", "")}
+
+
+# ── 页面 ──────────────────────────────────────────────────
 
 @app.get("/")
 def index():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
 
 
+@app.get("/logo.svg")
+def logo():
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "logo.svg"),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/share/{code}")
+def share_page(code: str):
+    return FileResponse(os.path.join(BASE_DIR, "static", "share.html"))
+
+
+# ── 诊断 ──────────────────────────────────────────────────
+
 @app.get("/api/health")
 def api_health():
-    """诊断用：确认运行中的进程是否加载到 Key（不返回明文）。"""
-    from . import flyai_client
-
     return {
         "flyai_key_loaded": bool(config.FLYAI_API_KEY),
         "dashscope_key_loaded": bool(config.DASHSCOPE_API_KEY),
@@ -44,15 +111,162 @@ def api_health():
     }
 
 
+# ── 认证 ──────────────────────────────────────────────────
+
+@app.post("/api/register")
+def api_register(req: RegisterRequest):
+    if len(req.username) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少2个字符")
+    if len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="密码至少4个字符")
+
+    user_id = str(uuid.uuid4())[:12]
+    password_hash = auth.hash_password(req.password)
+    user = db.create_user(user_id, req.username, password_hash)
+    if not user:
+        raise HTTPException(status_code=409, detail="用户名已存在")
+
+    token = auth.create_access_token(user["id"], user["username"])
+    return {
+        "token": token,
+        "user": {"id": user["id"], "username": user["username"]},
+    }
+
+
+@app.post("/api/login")
+def api_login(req: LoginRequest):
+    user = db.get_user_by_username(req.username)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    if not auth.verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    token = auth.create_access_token(user["id"], user["username"])
+    return {
+        "token": token,
+        "user": {"id": user["id"], "username": user["username"]},
+    }
+
+
+@app.get("/api/me")
+def api_me(user: dict = Depends(get_current_user)):
+    return {"id": user["id"], "username": user["username"]}
+
+
+# ── 旧版规划接口（保留向后兼容） ──────────────────────────
+
 @app.post("/api/plan")
-def api_plan(req: PlanRequest):
+def api_plan(req: PlanRequest, user: dict = Depends(get_current_user)):
     if not req.city:
         raise HTTPException(status_code=400, detail="city 必填")
     return planner.plan(req.dict())
 
 
+# ── 对话式规划 ────────────────────────────────────────────
+
+@app.post("/api/chat")
+def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
+    result = chat_mod.extract_params(req.message, req.conversation)
+    extracted = result.get("extracted", {})
+    sufficient = result.get("sufficient", False)
+    follow_up = result.get("follow_up", "")
+
+    if sufficient:
+        from . import structured_planner
+        plan_input = chat_mod.params_to_plan_input(extracted)
+        plan_result = planner.plan(plan_input)
+
+        sections = [(s["title"], s["data"]) for s in plan_result.get("sections", [])]
+        structured = structured_planner.generate_structured_plan(extracted, sections)
+
+        now = datetime.now().isoformat()
+        plan_id = str(uuid.uuid4())[:12]
+        plan_dict = {
+            "id": plan_id,
+            "user_id": user["id"],
+            "created_at": now,
+            "updated_at": now,
+            "phase": "planning",
+            "original_input": req.message,
+            "conversation": req.conversation + [
+                {"role": "user", "content": req.message},
+                {"role": "assistant", "content": "方案已生成"},
+            ],
+            "params": extracted,
+            "summary": structured.get("summary", plan_result.get("markdown", "")[:200]),
+            "action_items": structured.get("action_items", []),
+            "timeline": structured.get("timeline", []),
+            "budget": structured.get("budget", []),
+            "room_allocation": structured.get("room_allocation", []),
+            "budget_per_person": structured.get("budget_per_person"),
+            "share_code": None,
+            "members": [],
+            "markdown": plan_result.get("markdown", ""),
+            "warnings": plan_result.get("warnings", []),
+            "used_llm": plan_result.get("used_llm", False),
+        }
+        db.save_plan(plan_dict)
+        return {
+            "type": "plan_ready",
+            "message": "方案已生成！",
+            "extracted_params": extracted,
+            "plan_id": plan_id,
+            "plan": plan_result,
+            "structured": structured,
+        }
+
+    return {
+        "type": "follow_up",
+        "message": follow_up,
+        "extracted_params": extracted,
+        "sufficient": False,
+    }
+
+
+# ── 方案检索与实施跟踪 ────────────────────────────────────
+
+@app.get("/api/plan/{plan_id}")
+def api_get_plan(plan_id: str, user: dict = Depends(get_current_user)):
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return plan
+
+
+@app.put("/api/plan/{plan_id}/task/{task_id}")
+def api_update_task(plan_id: str, task_id: str, req: TaskUpdateRequest, user: dict = Depends(get_current_user)):
+    plan = db.update_task_status(plan_id, task_id, req.status, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案或任务不存在")
+    return plan
+
+
+@app.post("/api/plan/{plan_id}/share")
+def api_share_plan(plan_id: str, user: dict = Depends(get_current_user)):
+    code = db.generate_share_code(plan_id, user_id=user["id"])
+    if not code:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return {"share_code": code, "share_url": f"/share/{code}"}
+
+
+@app.get("/api/share/{code}")
+def api_get_shared(code: str):
+    """分享页面：无需登录，通过分享码访问。"""
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        raise HTTPException(status_code=404, detail="分享码无效")
+    return plan
+
+
+@app.get("/api/plans")
+def api_list_plans(user: dict = Depends(get_current_user)):
+    return db.list_plans(user["id"])
+
+
+# ── 飞猪原始查询 ──────────────────────────────────────────
+
 @app.post("/api/search")
-def api_search(req: SearchRequest):
+def api_search(req: SearchRequest, user: dict = Depends(get_current_user)):
     from . import flyai_client
 
     fn = getattr(flyai_client, req.command.replace("-", "_"), None)
