@@ -75,6 +75,19 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_share ON plans(share_code)")
 
+    # migration: add conversations table for chat history persistence
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id)")
+
     conn.commit()
     conn.close()
 
@@ -261,3 +274,35 @@ def list_plans(user_id: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [_row_to_dict(r) for r in rows]
+
+
+# ── Conversations ────────────────────────────────────────
+
+def save_conversation(user_id: str, role: str, content: str) -> None:
+    from datetime import datetime
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO conversations (user_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+        (user_id, role, content, datetime.now().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_conversations(user_id: str, limit: int = 50) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT role, content, created_at FROM conversations "
+        "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    # Reverse to get chronological order
+    return [{"role": r["role"], "content": r["content"], "created_at": r["created_at"]} for r in reversed(rows)]
+
+
+def clear_conversations(user_id: str) -> None:
+    conn = _get_conn()
+    conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()

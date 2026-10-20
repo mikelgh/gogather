@@ -251,6 +251,9 @@ def api_plan(req: PlanRequest, user: dict = Depends(get_current_user)):
 
 @app.post("/api/chat")
 def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
+    # Save user message to conversation history
+    db.save_conversation(user["id"], "user", req.message)
+
     result = chat_mod.extract_params(req.message, req.conversation)
     extracted = result.get("extracted", {})
     sufficient = result.get("sufficient", False)
@@ -291,6 +294,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
             "used_llm": plan_result.get("used_llm", False),
         }
         db.save_plan(plan_dict)
+        # Save assistant response
+        db.save_conversation(user["id"], "assistant", "方案已生成")
         return {
             "type": "plan_ready",
             "message": "方案已生成！",
@@ -300,6 +305,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
             "structured": structured,
         }
 
+    # Save follow-up question
+    db.save_conversation(user["id"], "assistant", follow_up)
     return {
         "type": "follow_up",
         "message": follow_up,
@@ -346,6 +353,17 @@ def api_get_shared(code: str):
 @app.get("/api/plans")
 def api_list_plans(user: dict = Depends(get_current_user)):
     return db.list_plans(user["id"])
+
+
+@app.get("/api/conversations")
+def api_get_conversations(user: dict = Depends(get_current_user)):
+    return db.get_conversations(user["id"])
+
+
+@app.delete("/api/conversations")
+def api_clear_conversations(user: dict = Depends(get_current_user)):
+    db.clear_conversations(user["id"])
+    return {"ok": True}
 
 
 # ── 飞猪原始查询 ──────────────────────────────────────────
