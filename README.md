@@ -87,6 +87,28 @@ docker-compose logs -f
 docker-compose down
 ```
 
+### 生产部署（腾讯云 · systemd + Caddy）
+
+线上地址：https://gogather.partystack.cn （Caddy 自动 HTTPS，反代 `127.0.0.1:8010`）
+
+仓库：https://github.com/mikelgh/gogather （私有，服务器使用只读 Deploy Key）
+
+生产环境采用原生部署（Python venv + `gogather.service` + Caddy），未使用 Docker；
+`Dockerfile` / `docker-compose.yml` 保留用于本地或容器化场景。
+
+自动更新（push-to-deploy）：
+
+- `gogather-update.timer` 每分钟检测 `origin/main`
+- 有新提交时 `git reset --hard origin/main`
+- `pyproject.toml` / `uv.lock` 或 `package*.json` 变更时自动重装依赖
+- 自动 `systemctl restart gogather`
+- `.env` 与 `data/` 未被 git 跟踪，更新不会覆盖
+
+```bash
+# 服务器一次性启用
+sudo systemctl enable --now gogather-update.timer
+```
+
 ## API 接口
 
 ### 认证
