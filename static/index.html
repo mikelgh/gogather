@@ -54,6 +54,7 @@
   .raw{margin-top:14px;font-size:12px;color:var(--sub)}
   .raw summary{cursor:pointer}
   .raw pre{white-space:pre-wrap;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:240px;overflow:auto}
+  .warn{display:none;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;padding:12px 14px;border-radius:10px;font-size:13px;margin-bottom:12px;line-height:1.7}
 </style>
 </head>
 <body>
@@ -110,6 +111,7 @@
 
     <div class="card result" id="resultCard">
       <h2 id="resTitle">出行方案 <span class="badge" id="resBadge"></span></h2>
+      <div class="warn" id="warnBox"></div>
       <div class="toolbar">
         <button onclick="copyMd()">复制 Markdown</button>
         <button onclick="downloadMd()">导出 .md</button>
@@ -191,6 +193,15 @@ async function runPlan(){
     if(!r.ok){ throw new Error(data.detail||'请求失败'); }
     document.getElementById('resBadge').textContent = data.used_llm ? 'Qwen 润色' : '模板拼接';
     document.getElementById('resTitle').firstChild.textContent = (data.city||'') + ' 出行方案 ';
+    const wb = document.getElementById('warnBox');
+    if(data.warnings && data.warnings.length){
+      document.getElementById('resBadge').textContent = '⚠️ 数据异常';
+      wb.style.display = 'block';
+      wb.innerHTML = data.warnings.map(w=>'• '+w).join('<br>');
+    } else {
+      wb.style.display = 'none';
+      wb.innerHTML = '';
+    }
     rendered.innerHTML = mdToHtml(data.markdown);
     document.getElementById('rawData').textContent = JSON.stringify(data.sections, null, 2);
     window.__lastMd = data.markdown;

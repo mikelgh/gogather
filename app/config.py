@@ -3,16 +3,16 @@ import os
 import sys
 import shutil
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 自动加载项目根目录 .env（FLYAI_API_KEY / DASHSCOPE_API_KEY 等），
-# 这样无论用 `uv run` 还是直接 `.venv/Scripts/python -m uvicorn` 都能读到 Key。
+# 明确指向 BASE_DIR/.env，避免「从别的目录启动 uvicorn 导致读不到 Key」。
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(os.path.join(BASE_DIR, ".env"))
 except Exception:
     pass
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def get_env(name: str, default: str = "") -> str:
