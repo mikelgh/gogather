@@ -28,6 +28,14 @@ QWEN_BASE_URL = get_env(
     "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 
+# MiniMax 配置（可选，LLM_PROVIDER=minimax 时启用）
+MINIMAX_API_KEY = get_env("MINIMAX_API_KEY", "")
+MINIMAX_BASE_URL = get_env("MINIMAX_BASE_URL", "https://api.minimax.cn/v1")
+MINIMAX_MODEL = get_env("MINIMAX_MODEL", "MiniMax-M3")
+
+# LLM 供应商选择：qwen（默认）或 minimax
+LLM_PROVIDER = get_env("LLM_PROVIDER", "qwen")
+
 
 def resolve_flyai_prefix() -> list:
     """返回调用 flyai 的命令前缀（列表形式，便于 subprocess 安全传参）。"""

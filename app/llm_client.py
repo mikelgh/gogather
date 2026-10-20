@@ -73,56 +73,96 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def complete(user_prompt: str, mode: str = "event", max_tokens: int = 3000):
-    if not config.DASHSCOPE_API_KEY:
-        return None
-    system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
-    url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    # temperature 压低： faithfulness 优先于"创意"，减少凭空补全的概率。
-    payload = {
-        "model": config.QWEN_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.2,
-    }
+def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000):
+    provider = config.LLM_PROVIDER.lower()
+    if provider == "minimax":
+        if not config.MINIMAX_API_KEY:
+            return None
+        system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
+        url = config.MINIMAX_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {config.MINIMAX_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": config.MINIMAX_MODEL,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.2,
+            "thinking": {"type": "disabled"},
+        }
+    else:  # qwen (default)
+        if not config.DASHSCOPE_API_KEY:
+            return None
+        system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
+        url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": config.QWEN_MODEL,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.2,
+        }
     try:
-        # 3000 tokens 的富方案在 qwen-plus 上常需 1-2 分钟，60s 会导致静默降级。
         with httpx.Client(timeout=180) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        log.warning("LLM complete failed: %s: %s", type(e).__name__, e)
+        log.warning("LLM complete failed (%s): %s: %s", provider, type(e).__name__, e)
         return None
 
 
-def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> dict | None:
+def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> dict | None:
     """调用 LLM 并强制返回 JSON 格式。失败返回 None。"""
-    if not config.DASHSCOPE_API_KEY:
-        return None
-    url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": config.QWEN_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"},
-    }
+    provider = config.LLM_PROVIDER.lower()
+    if provider == "minimax":
+        if not config.MINIMAX_API_KEY:
+            return None
+        url = config.MINIMAX_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {config.MINIMAX_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": config.MINIMAX_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
+        }
+    else:  # qwen (default)
+        if not config.DASHSCOPE_API_KEY:
+            return None
+        url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": config.QWEN_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+        }
     try:
         with httpx.Client(timeout=120) as client:
             resp = client.post(url, headers=headers, json=payload)
@@ -132,5 +172,5 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 2000) 
         text = text.lstrip("```json").rstrip("```").strip()
         return _json.loads(text)
     except Exception as e:
-        log.warning("LLM complete_json failed: %s: %s", type(e).__name__, e)
+        log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
         return None
