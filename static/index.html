@@ -583,6 +583,38 @@ body {
   margin-bottom: 3px;
 }
 
+.timeline-price {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: rgba(99,102,241,0.08);
+  padding: 1px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+}
+
+.booking-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 12px;
+  transition: var(--transition);
+}
+
+.booking-link:hover {
+  background: rgba(99,102,241,0.08);
+  border-color: var(--primary);
+}
+
 .timeline-content p {
   font-size: 13px;
   color: var(--text-secondary);
@@ -637,6 +669,13 @@ body {
 .budget-card .unit {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.budget-card .budget-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .budget-total {
@@ -1975,9 +2014,10 @@ function renderTimeline(structured) {
     <div class="timeline-item" style="animation: fadeInUp 0.3s ease ${i * 0.05}s both;">
       <div class="timeline-time">${item.time_range || ''}</div>
       <div class="timeline-content">
-        <h4>${item.title || ''}</h4>
+        <h4>${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
         <p>${item.notes || ''}</p>
         ${item.location ? `<div class="location">${item.location}</div>` : ''}
+        ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
       </div>
     </div>
   `).join('');
@@ -2003,6 +2043,7 @@ function renderBudget(structured) {
     <div class="budget-card" style="animation: fadeInUp 0.3s ease ${i * 0.05}s both;">
       <div class="category">${item.category}</div>
       <div class="amount">${item.estimated_cost || '--'}</div>
+      ${item.description ? `<div class="budget-desc">${item.description}</div>` : ''}
       <div class="unit">${item.is_per_person ? '人均' : '总计'}</div>
     </div>
   `).join('');
