@@ -217,8 +217,8 @@ def build_sections(inp: dict) -> tuple:
             q_poi += " 适合团体打卡"
         _call("🎡 玩法（备选）", flyai.ai_search(q_poi))
 
-    # 3) 美食聚餐 —— 无结构化餐厅接口，走 ai-search
-    q_food = f"{city} 适合{group or '团体'}聚餐的特色餐厅 本地必吃榜"
+    # 3) 美食聚餐 —— 无结构化餐厅接口，走 ai-search（查询词带人均消费，飞猪会返回人均参考价）
+    q_food = f"{city} 适合{group or '团体'}聚餐的特色餐厅 人均消费"
     if vibe:
         q_food += f" 偏好{vibe}"
     _call("🍜 美食聚餐", flyai.ai_search(q_food))

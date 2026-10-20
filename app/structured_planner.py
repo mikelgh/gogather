@@ -84,6 +84,7 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 6. 房间分配根据人数计算（30人→15间双人间）
 7. budget_per_person = 所有预算项总和 ÷ 人数，必须是具体数字（如"约¥1200"），禁止"待估算"
 8. 若某项确实无价格数据，description 说明"点击预订链接查看实时价格"，该项不计入预算总额，但其余项照常计算
+9. **餐饮估算**：若飞猪结果给出人均消费参考（如"人均 120-200 元/人"），取中间值估算餐饮预算，description 注明「按飞猪人均参考估算」，is_per_person=true
 """
 
 
@@ -135,7 +136,7 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 请输出严格的 JSON 格式方案。
 """
 
-    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=4000)
+    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=6000)
     if not result:
         return _fallback_structured(params, flyai_sections)
 
