@@ -125,6 +125,7 @@ def format_structured(data, limit: int = 8) -> str:
     """把结构化查询（itemList dict）格式化为含价格+预订链接的文本，供 LLM 直接引用。
 
     只保留价格/链接/名称等事实字段，绝不添油加醋；超出的条目截断以控制 token。
+    支持酒店/景点（name+price 字段）与机票（ticketPrice+journeys 嵌套）两种结构。
     """
     if not isinstance(data, dict):
         return str(data or "").strip()
@@ -133,6 +134,29 @@ def format_structured(data, limit: int = 8) -> str:
         return ""
     lines = []
     for it in items[:limit]:
+        # 机票结构：ticketPrice + journeys[].segments[]（航班号/时刻/机场）
+        if "journeys" in it:
+            price = it.get("ticketPrice")
+            journeys = it.get("journeys") or []
+            seg_parts = []
+            for j in journeys[:1]:
+                for seg in (j.get("segments") or []):
+                    flight_no = seg.get("marketingTransportNo") or ""
+                    airline = seg.get("marketingTransportName") or ""
+                    dep = f"{seg.get('depCityName','')} {seg.get('depDateTime','')}"
+                    arr = f"{seg.get('arrCityName','')} {seg.get('arrDateTime','')}"
+                    seat = seg.get("seatClassName") or ""
+                    seg_parts.append(f"{airline}{flight_no} {dep}→{arr} {seat}")
+            parts = ["航班: " + " / ".join(seg_parts)] if seg_parts else []
+            if price:
+                parts.append(f"价格: ¥{price}")
+            if it.get("jumpUrl"):
+                parts.append(f"预订链接: {it['jumpUrl']}")
+            if parts:
+                lines.append("- " + "；".join(parts))
+            continue
+
+        # 酒店/景点结构
         parts = []
         name = it.get("name") or ""
         if name:
