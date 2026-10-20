@@ -3,6 +3,15 @@ import os
 import sys
 import shutil
 
+# 自动加载项目根目录 .env（FLYAI_API_KEY / DASHSCOPE_API_KEY 等），
+# 这样无论用 `uv run` 还是直接 `.venv/Scripts/python -m uvicorn` 都能读到 Key。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 

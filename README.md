@@ -34,11 +34,13 @@ uv sync
 # 2) Node 依赖（提供本地 flyai 二进制，避免 npx 重复下载）
 npm install        # 会安装 @fly-ai/flyai-cli 到 node_modules/.bin/flyai
 
-# 3) 环境变量（可选）
+# 3) 环境变量（可选，但配真实 Key 推荐）
 cp .env.example .env
-#   FLYAI_API_KEY      体验模式可不填；正式解锁完整结果去 https://flyai.open.fliggy.com/console
-#   DASHSCOPE_API_KEY  不填则方案用模板拼接；大赛送百炼新用户 1 亿 Token
+# 应用启动时会自动 load_dotenv() 读取本目录 .env，无需手动 export。
+#   FLYAI_API_KEY      体验模式可不填；配置正式 Key 解锁完整结果+稳定额度，去 https://flyai.open.fliggy.com/ 控制台领取
+#   DASHSCOPE_API_KEY  不填则方案用模板拼接；大赛送百炼新用户 1 亿 Token（https://bailian.console.aliyun.com）
 ```
+> 拿 Key 的两种方式（任选其一）：① 在 `.env` 写 `FLYAI_API_KEY=xxx`；② 命令行 `flyai config set FLYAI_API_KEY "xxx"`（写入 flyai 配置，全局生效）。
 
 ## 运行
 ```bash
