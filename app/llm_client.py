@@ -68,7 +68,7 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def complete(user_prompt: str, mode: str = "event", max_tokens: int = 1800):
+def complete(user_prompt: str, mode: str = "event", max_tokens: int = 3000):
     if not config.DASHSCOPE_API_KEY:
         return None
     system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
