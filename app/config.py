@@ -1,7 +1,9 @@
 """配置与运行环境解析（API Key、模型、flyai 可执行文件探测）"""
+import glob
 import os
-import sys
 import shutil
+import subprocess
+import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,3 +50,61 @@ def resolve_flyai_prefix() -> list:
     if npx:
         return [npx, "-y", "@fly-ai/flyai-cli"]
     return ["npx", "-y", "@fly-ai/flyai-cli"]
+
+
+def _node_major(exe: str) -> int:
+    """探测某个 node 可执行文件的主版本号；失败返回 0。"""
+    try:
+        p = subprocess.run(
+            [exe, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+        v = (p.stdout or "").strip().lstrip("v")
+        return int(v.split(".")[0])
+    except Exception:
+        return 0
+
+
+def resolve_node_dir() -> str:
+    """返回一个含 Node>=18 的目录（flyai-cli 依赖全局 fetch，需 Node 18+）。
+
+    flyai.cmd 用 PATH 上的 `node`；若服务进程的 PATH 上是旧 Node（<18），
+    flyai-cli 会报 `ReferenceError: fetch is not defined` 而崩。这里优先挑
+    WorkBuddy 托管的最新 Node，其次 PATH 上的 node，取到第一个 >=18 的目录。
+    """
+    if sys.platform.startswith("win"):
+        node_name = "node.exe"
+    else:
+        node_name = "node"
+
+    candidates = []
+    # 1) WorkBuddy 托管 Node（按版本目录名倒序，尽量取最新）
+    managed = sorted(
+        glob.glob(
+            os.path.join(
+                os.path.expanduser("~"),
+                ".workbuddy",
+                "binaries",
+                "node",
+                "versions",
+                "*",
+            )
+        ),
+        reverse=True,
+    )
+    for d in managed:
+        if os.path.exists(os.path.join(d, node_name)):
+            candidates.append(d)
+    # 2) PATH 上的 node
+    w = shutil.which("node")
+    if w:
+        candidates.append(os.path.dirname(w))
+
+    for d in candidates:
+        if _node_major(os.path.join(d, node_name)) >= 18:
+            return d
+    return ""

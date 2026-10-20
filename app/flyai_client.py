@@ -40,6 +40,11 @@ def _run(subcommand: str, options: dict) -> dict:
     env = os.environ.copy()
     if config.FLYAI_API_KEY:
         env["FLYAI_API_KEY"] = config.FLYAI_API_KEY
+    # 保证 flyai-cli 用 Node>=18（否则全局 fetch 未定义会直接崩）。
+    # flyai.cmd 调 PATH 上的 node，把含现代 Node 的目录怼到 PATH 最前。
+    node_dir = config.resolve_node_dir()
+    if node_dir:
+        env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
 
     cmd_str = (
         subprocess.list2cmdline(cmd)
