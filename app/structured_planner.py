@@ -38,14 +38,23 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
             "title": "酒店入住",
             "action_item_id": "hotel-1",
             "location": "杭州白金汉爵大酒店",
+            "booking_link": "https://router.feizhu.com/...",
+            "price": "¥400/间/晚（飞猪实时价）",
             "notes": "统一办理入住，领取房卡"
         }}
     ],
     "budget": [
         {{
             "category": "住宿",
-            "description": "双人间，15间×1晚",
-            "estimated_cost": "¥400",
+            "description": "双人间¥400×15间×1晚",
+            "estimated_cost": "¥6000",
+            "is_per_person": false,
+            "action_item_id": "hotel-1"
+        }},
+        {{
+            "category": "住宿（人均）",
+            "description": "¥6000÷30人",
+            "estimated_cost": "¥200",
             "is_per_person": true,
             "action_item_id": "hotel-1"
         }}
@@ -66,10 +75,15 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 规则：
 1. 所有事实信息必须来自飞猪搜索结果，保留原始预订链接
 2. 为每个可预订项目创建 action_item（酒店/交通/餐厅/活动）
-3. 时间线要具体到小时，按 Day 1/Day 2 组织
-4. 预算按类别拆分，给出人均估算
-5. 房间分配根据人数计算（30人→15间双人间）
-6. 如果飞猪数据缺少某项，标注"待确认"而非编造
+3. 时间线要具体到小时，按 Day 1/Day 2 组织；timeline 每项必须带 booking_link 和 price
+4. **价格必须来自飞猪结果中的「价格: ¥XXX」字段**，直接引用，禁止标"待确认"后什么都不给
+5. **预算必须计算**：
+   - 住宿总费 = 房间单价 × 房间数（人数÷2 向上取整）× 晚数
+   - 门票/交通总费 = 单价 × 人数
+   - budget 数组每项给出计算式（如"¥400×15间×1晚"）和结果数字
+6. 房间分配根据人数计算（30人→15间双人间）
+7. budget_per_person = 所有预算项总和 ÷ 人数，必须是具体数字（如"约¥1200"），禁止"待估算"
+8. 若某项确实无价格数据，description 说明"点击预订链接查看实时价格"，该项不计入预算总额，但其余项照常计算
 """
 
 
@@ -90,10 +104,10 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
     origin = params.get("origin", "")
     vibe = params.get("vibe", "")
 
-    # 构建飞猪数据摘要
+    # 构建飞猪数据摘要（结构化数据含价格+链接，放宽截断以保留完整价格信息）
     flyai_summary = []
     for title, data in flyai_sections:
-        flyai_summary.append(f"【{title}】\n{data[:500]}")
+        flyai_summary.append(f"【{title}】\n{data[:2500]}")
 
     flyai_text = "\n\n".join(flyai_summary)
 
@@ -110,9 +124,14 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 请基于以下飞猪 AI 搜索结果，为{group_size}人的{city}聚会生成结构化方案。
 
 ==== 用户场景 ===={scenario}
-==== 飞猪搜索结果 ===={flyai_text}
+==== 飞猪搜索结果（每条含真实价格与预订链接） ===={flyai_text}
 ==== 飞猪结果结束 ====
 
+硬性要求：
+1. action_items 与 timeline 中的每个项目都必须带上飞猪结果里的「预订链接」原文
+2. price / estimated_cost 必须优先使用飞猪结果中的真实价格（如「价格: ¥554」）
+3. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、门票/交通 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
+4. budget_per_person = 总预算 ÷ {group_size}，必须给出具体数字
 请输出严格的 JSON 格式方案。
 """
 

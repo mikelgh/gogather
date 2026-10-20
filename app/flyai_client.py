@@ -116,9 +116,47 @@ def _run(subcommand: str, options: dict) -> dict:
         }
 
 
-def extract_data(result: dict) -> str:
-    """从 flyai 返回里取出正文 text。"""
-    return (result.get("data") or "").strip()
+def extract_data(result: dict):
+    """从 flyai 返回里取出正文。结构化查询返回 dict，ai-search 返回 str。"""
+    return result.get("data") or ""
+
+
+def format_structured(data, limit: int = 8) -> str:
+    """把结构化查询（itemList dict）格式化为含价格+预订链接的文本，供 LLM 直接引用。
+
+    只保留价格/链接/名称等事实字段，绝不添油加醋；超出的条目截断以控制 token。
+    """
+    if not isinstance(data, dict):
+        return str(data or "").strip()
+    items = data.get("itemList") or []
+    if not items:
+        return ""
+    lines = []
+    for it in items[:limit]:
+        parts = []
+        name = it.get("name") or ""
+        if name:
+            parts.append(f"名称: {name}")
+        price = it.get("price")
+        if not price and isinstance(it.get("ticketInfo"), dict):
+            price = it["ticketInfo"].get("price")
+        if price:
+            parts.append(f"价格: {price}")
+        star = it.get("star") or it.get("poiLevel")
+        if star:
+            parts.append(f"星级/等级: {star}")
+        if it.get("address"):
+            parts.append(f"地址: {it['address']}")
+        if it.get("interestsPoi"):
+            parts.append(f"位置: {it['interestsPoi']}")
+        desc = (it.get("description") or "").strip()
+        if desc:
+            parts.append(f"简介: {desc[:120]}")
+        link = it.get("detailUrl") or it.get("jumpUrl")
+        if link:
+            parts.append(f"预订链接: {link}")
+        lines.append("- " + "；".join(parts))
+    return "\n".join(lines)
 
 
 # ── 高层封装 ───────────────────────────────────────────────
