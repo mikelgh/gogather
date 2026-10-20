@@ -28,6 +28,13 @@ QWEN_BASE_URL = get_env(
     "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 
+# GitHub OAuth
+GITHUB_CLIENT_ID = get_env("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = get_env("GITHUB_CLIENT_SECRET", "")
+GITHUB_CALLBACK_URL = get_env(
+    "GITHUB_CALLBACK_URL", "https://gogather.partystack.cn/api/auth/github/callback"
+)
+
 # MiniMax 配置（可选，LLM_PROVIDER=minimax 时启用）
 MINIMAX_API_KEY = get_env("MINIMAX_API_KEY", "")
 MINIMAX_BASE_URL = get_env("MINIMAX_BASE_URL", "https://api.minimax.cn/v1")

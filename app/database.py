@@ -65,6 +65,13 @@ def init_db():
             VALUES ('legacy', 'legacy', '', '')
         """)
 
+    # migration: add github_id and avatar_url columns for OAuth
+    user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "github_id" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN github_id TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github ON users(github_id)")
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_share ON plans(share_code)")
 
@@ -97,6 +104,47 @@ def get_user_by_username(username: str) -> dict | None:
     if not row:
         return None
     return dict(row)
+
+
+def get_user_by_github_id(github_id: int) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM users WHERE github_id = ?", (str(github_id),)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+
+def link_github_account(user_id: str, github_id: int, avatar_url: str) -> bool:
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET github_id = ?, avatar_url = ? WHERE id = ?",
+            (str(github_id), avatar_url, user_id),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def create_github_user(user_id: str, username: str, github_id: int, avatar_url: str) -> dict | None:
+    from datetime import datetime
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at, github_id, avatar_url) "
+            "VALUES (?, ?, '', ?, ?, ?)",
+            (user_id, username, datetime.now().isoformat(), str(github_id), avatar_url),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None
+    conn.close()
+    return {"id": user_id, "username": username, "avatar_url": avatar_url}
 
 
 # ── Plans ─────────────────────────────────────────────────

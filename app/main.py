@@ -1,11 +1,14 @@
 """FastAPI 应用入口：页面、认证、规划、对话、实施跟踪接口。"""
 import os
 import uuid
+import secrets
 from datetime import datetime
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
+import httpx
 
 from . import config, planner, chat as chat_mod
 from . import database as db
@@ -151,6 +154,88 @@ def api_login(req: LoginRequest):
 @app.get("/api/me")
 def api_me(user: dict = Depends(get_current_user)):
     return {"id": user["id"], "username": user["username"]}
+
+
+# ── GitHub OAuth ──────────────────────────────────────────
+
+_oauth_states: dict[str, float] = {}
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
+
+
+@app.get("/api/auth/github")
+def github_login():
+    if not config.GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GitHub OAuth 未配置")
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = datetime.now().timestamp()
+    params = {
+        "client_id": config.GITHUB_CLIENT_ID,
+        "redirect_uri": config.GITHUB_CALLBACK_URL,
+        "scope": "read:user",
+        "state": state,
+    }
+    return RedirectResponse(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
+
+
+@app.get("/api/auth/github/callback")
+async def github_callback(code: str, state: str):
+    if state not in _oauth_states:
+        raise HTTPException(status_code=400, detail="无效的 state 参数")
+    _oauth_states.pop(state)
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        token_resp = await client.post(
+            GITHUB_TOKEN_URL,
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": config.GITHUB_CLIENT_ID,
+                "client_secret": config.GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": config.GITHUB_CALLBACK_URL,
+            },
+        )
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="GitHub 授权失败")
+
+        user_resp = await client.get(
+            GITHUB_USER_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            },
+        )
+        gh_user = user_resp.json()
+
+    github_id = gh_user["id"]
+    github_username = gh_user["login"]
+    avatar_url = gh_user.get("avatar_url", "")
+
+    existing = db.get_user_by_github_id(github_id)
+    if existing:
+        token = auth.create_access_token(existing["id"], existing["username"])
+        frontend_url = f"/?token={token}&username={existing['username']}"
+        return RedirectResponse(frontend_url)
+
+    existing_by_name = db.get_user_by_username(github_username)
+    if existing_by_name:
+        db.link_github_account(existing_by_name["id"], github_id, avatar_url)
+        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
+        frontend_url = f"/?token={token}&username={existing_by_name['username']}"
+        return RedirectResponse(frontend_url)
+
+    user_id = str(uuid.uuid4())[:12]
+    new_user = db.create_github_user(user_id, github_username, github_id, avatar_url)
+    if not new_user:
+        raise HTTPException(status_code=500, detail="创建用户失败")
+
+    token = auth.create_access_token(new_user["id"], new_user["username"])
+    frontend_url = f"/?token={token}&username={new_user['username']}"
+    return RedirectResponse(frontend_url)
 
 
 # ── 旧版规划接口（保留向后兼容） ──────────────────────────
