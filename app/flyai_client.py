@@ -24,6 +24,11 @@ _ALLOWED_OPTIONS = {
         "back_date", "back_date_start", "back_date_end", "journey_type",
         "seat_class_name", "transport_no", "transfer_city", "max_price", "sort_type",
     },
+    "search-train": {
+        "origin", "destination", "dep_date", "dep_date_start", "dep_date_end",
+        "back_date", "back_date_start", "back_date_end", "journey_type",
+        "seat_class_name", "transport_no", "transfer_city", "max_price", "sort_type",
+    },
 }
 
 
@@ -134,20 +139,25 @@ def format_structured(data, limit: int = 8) -> str:
         return ""
     lines = []
     for it in items[:limit]:
-        # 机票结构：ticketPrice + journeys[].segments[]（航班号/时刻/机场）
+        # 机票/火车票结构：ticketPrice + journeys[].segments[]（航班号或车次号/时刻/站点）
         if "journeys" in it:
             price = it.get("ticketPrice")
             journeys = it.get("journeys") or []
             seg_parts = []
+            is_train = False
             for j in journeys[:1]:
                 for seg in (j.get("segments") or []):
-                    flight_no = seg.get("marketingTransportNo") or ""
-                    airline = seg.get("marketingTransportName") or ""
+                    transport_no = seg.get("marketingTransportNo") or ""
+                    transport_name = seg.get("marketingTransportName") or ""
                     dep = f"{seg.get('depCityName','')} {seg.get('depDateTime','')}"
                     arr = f"{seg.get('arrCityName','')} {seg.get('arrDateTime','')}"
                     seat = seg.get("seatClassName") or ""
-                    seg_parts.append(f"{airline}{flight_no} {dep}→{arr} {seat}")
-            parts = ["航班: " + " / ".join(seg_parts)] if seg_parts else []
+                    # 判断是火车还是飞机：车次号以 G/D/C/K/Z 开头
+                    if transport_no and transport_no[0].upper() in "GDCKZ":
+                        is_train = True
+                    seg_parts.append(f"{transport_name}{transport_no} {dep}→{arr} {seat}")
+            label = "车次" if is_train else "航班"
+            parts = [f"{label}: " + " / ".join(seg_parts)] if seg_parts else []
             if price:
                 parts.append(f"价格: ¥{price}")
             if it.get("jumpUrl"):
@@ -217,3 +227,10 @@ def search_flight(
     seat_class_name=None, max_price=None, sort_type=None,
 ) -> dict:
     return _run("search-flight", {k: v for k, v in locals().items() if v is not None})
+
+
+def search_train(
+    origin=None, destination=None, dep_date=None, back_date=None,
+    seat_class_name=None, max_price=None, sort_type=None,
+) -> dict:
+    return _run("search-train", {k: v for k, v in locals().items() if v is not None})

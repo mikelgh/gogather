@@ -32,6 +32,7 @@ class PlanRequest(BaseModel):
     group_size: str = ""
     vibe: str = ""
     budget_tier: str = "舒适型"
+    transport_mode: str = "auto"
     children_count: str | None = None
     children_ages: str | None = None
     elderly_count: str | None = None
@@ -49,6 +50,7 @@ class ChatRequest(BaseModel):
     plan_id: str | None = None
     conversation: list[dict] = Field(default_factory=list)
     budget_tier: str = "舒适型"
+    transport_mode: str = "auto"
     preferences: list[str] = Field(default_factory=list)
 
 
@@ -136,7 +138,10 @@ def admin_plan_ai_usage(plan_id: str, admin: dict = Depends(get_admin_user)):
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/logo.svg")
@@ -478,6 +483,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
 
     if not extracted.get("budget_tier"):
         extracted["budget_tier"] = req.budget_tier
+    if not extracted.get("transport_mode") or extracted.get("transport_mode") == "auto":
+        extracted["transport_mode"] = req.transport_mode
     if not extracted.get("preferences") and req.preferences:
         extracted["preferences"] = req.preferences
 

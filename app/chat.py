@@ -19,6 +19,7 @@ EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自
 - children_ages: 儿童年龄描述（如 "5岁和8岁"、"都是小学生"）
 - elderly_count: 老人数量（如 "2位老人"、"带父母"）
 - accessibility: 无障碍需求（如 "有无障碍需求"、"有轮椅"、"行动不便"）
+- transport_mode: 交通方式偏好（"flight" 飞机、"train" 高铁/动车、"auto" 自动推荐，默认 "auto"）
 - preferences: 偏好标签列表（如 ["美食", "风景", "文化"]，可选值：美食、风景、休闲、夜生活、文化、户外、购物、亲子）
 
 规则：
@@ -29,10 +30,16 @@ EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自
 5. 如果信息不足，生成 1-3 个简短追问，不要重复已提取的信息。
 6. 如果 budget_tier 未提及，在追问中询问预算档次偏好。
 7. 如果团体中有儿童或老人，追问年龄和无障碍需求以便推荐合适的活动。
+8. 如果 origin 和 city 都已提取，且用户未指定 transport_mode，根据距离判断是否追问交通方式：
+   - 近距离（≤600km，如上海→杭州）：默认推荐高铁，追问中告知用户"已为您优先推荐高铁"
+   - 中距离（600-1200km，如上海→北京）：追问"您偏好飞机还是高铁？"
+   - 远距离（>1200km，如北京→广州）：默认推荐飞机，追问中告知用户"已为您优先推荐飞机"
+   - 用户提到"高铁"、"动车"、"火车" → transport_mode="train"
+   - 用户提到"飞机"、"机票"、"航班" → transport_mode="flight"
 
 严格返回 JSON（不要 markdown 代码块）：
 {{
-    "extracted": {{"city": "...", "check_in": "...", "budget_tier": "...", "children_count": "...", "preferences": [...], ...}},
+    "extracted": {{"city": "...", "check_in": "...", "budget_tier": "...", "transport_mode": "auto", "children_count": "...", "preferences": [...], ...}},
     "sufficient": false,
     "follow_up": "追问内容（如果 sufficient=false）"
 }}
@@ -122,6 +129,7 @@ def params_to_plan_input(params: dict) -> dict:
         "group_size": params.get("group_size", ""),
         "vibe": params.get("vibe", ""),
         "budget_tier": params.get("budget_tier", "舒适型"),
+        "transport_mode": params.get("transport_mode", "auto"),
         "children_count": params.get("children_count"),
         "children_ages": params.get("children_ages"),
         "elderly_count": params.get("elderly_count"),

@@ -496,6 +496,57 @@ body {
   background: rgba(99,102,241,0.12);
 }
 
+.transport-mode-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.transport-mode-btn.active:hover {
+  background: var(--primary-dark);
+}
+
+/* ── Transport Quick Reply ───────────────────────────────── */
+.transport-quick-reply {
+  margin: 12px 0 12px 40px;
+  animation: fadeIn 0.3s ease;
+}
+
+.transport-quick-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.transport-quick-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.transport-quick-btn {
+  padding: 10px 20px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.transport-quick-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-bg);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.15);
+}
+
+.transport-quick-btn:active { transform: translateY(0); }
+
 /* ── Revision Input ──────────────────────────────────────── */
 .revision-area {
   margin-top: 16px;
@@ -2054,6 +2105,12 @@ body {
           <button class="quick-action budget-tier-btn active" data-tier="舒适型" onclick="selectBudgetTier('舒适型')">💎 舒适型</button>
           <button class="quick-action budget-tier-btn" data-tier="豪华型" onclick="selectBudgetTier('豪华型')">👑 豪华型</button>
         </div>
+        <div class="quick-actions" id="transportModeActions">
+          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">交通：</span>
+          <button class="quick-action transport-mode-btn active" data-mode="auto" onclick="selectTransportMode('auto')">🤖 自动推荐</button>
+          <button class="quick-action transport-mode-btn" data-mode="train" onclick="selectTransportMode('train')">🚄 高铁/动车</button>
+          <button class="quick-action transport-mode-btn" data-mode="flight" onclick="selectTransportMode('flight')">✈️ 飞机</button>
+        </div>
         <div class="quick-actions" id="preferenceTags">
           <span style="font-size:12px;color:var(--text-muted);line-height:28px;">偏好：</span>
           <button class="quick-action pref-tag-btn" data-pref="美食" onclick="togglePreference('美食')">🍜 美食</button>
@@ -2230,6 +2287,7 @@ const state = {
   token: localStorage.getItem('juxing_token'),
   user: JSON.parse(localStorage.getItem('juxing_user') || 'null'),
   budgetTier: '舒适型',
+  transportMode: 'auto',
   preferences: [],
 };
 
@@ -2366,8 +2424,10 @@ async function loadPlanList() {
       const origin = params.origin ? `从${params.origin}出发` : '';
       const vibe = params.vibe || '';
       const budgetTier = params.budget_tier || '';
+      const transportIcons = { flight: '✈️', train: '🚄', auto: '' };
+      const transportLabel = params.origin && params.transport_mode ? (transportIcons[params.transport_mode] || '') : '';
       const title = [city, group].filter(Boolean).join(' ') || p.original_input?.slice(0, 20) || '未命名方案';
-      const meta = [dates, origin, vibe, budgetTier].filter(Boolean).join(' · ');
+      const meta = [dates, origin + transportLabel, vibe, budgetTier].filter(Boolean).join(' · ');
       return `
         <li class="plan-list-item${isActive ? ' active' : ''}">
           <div class="plan-list-item-content" onclick="selectPlan('${p.id}')">
@@ -2612,7 +2672,7 @@ function addMessage(role, content, params = null) {
       origin: '出发', group_size: '人数', vibe: '偏好',
       budget: '预算', budget_tier: '档次', activity_type: '类型',
       children_count: '儿童', elderly_count: '老人', accessibility: '无障碍',
-      preferences: '兴趣',
+      preferences: '兴趣', transport_mode: '交通',
     };
     const chips = Object.entries(params)
       .filter(([k, v]) => v && v !== 'null' && v !== null)
@@ -2692,6 +2752,43 @@ function selectBudgetTier(tier) {
   });
 }
 
+function selectTransportMode(mode) {
+  state.transportMode = mode;
+  document.querySelectorAll('.transport-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+}
+
+function showTransportQuickReply() {
+  const messages = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'transport-quick-reply';
+  div.innerHTML = `
+    <div class="transport-quick-label">选择交通方式：</div>
+    <div class="transport-quick-btns">
+      <button class="transport-quick-btn" onclick="sendTransportChoice('坐高铁/动车去', 'train')">🚄 高铁/动车</button>
+      <button class="transport-quick-btn" onclick="sendTransportChoice('坐飞机去', 'flight')">✈️ 飞机</button>
+      <button class="transport-quick-btn" onclick="sendTransportChoice('都可以，你推荐', 'auto')">🤖 自动推荐</button>
+    </div>
+  `;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function sendTransportChoice(text, mode) {
+  // 移除快捷按钮
+  const qr = document.querySelector('.transport-quick-reply');
+  if (qr) qr.remove();
+
+  // 更新交通方式选择器
+  selectTransportMode(mode);
+
+  // 作为用户消息发送
+  const input = document.getElementById('chatInput');
+  input.value = text;
+  sendMessage();
+}
+
 function togglePreference(pref) {
   const idx = state.preferences.indexOf(pref);
   if (idx >= 0) {
@@ -2717,10 +2814,14 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
   
-  // 构建参数预览（预算档次 + 偏好标签）
+  // 构建参数预览（预算档次 + 交通方式 + 偏好标签）
   const msgParams = {};
   if (state.budgetTier && state.budgetTier !== '舒适型') {
     msgParams.budget_tier = state.budgetTier;
+  }
+  const transportLabels = { auto: '自动推荐', train: '高铁/动车', flight: '飞机' };
+  if (state.transportMode && state.transportMode !== 'auto') {
+    msgParams.transport_mode = transportLabels[state.transportMode] || state.transportMode;
   }
   if (state.preferences && state.preferences.length > 0) {
     msgParams.preferences = state.preferences.join('、');
@@ -2736,7 +2837,7 @@ async function sendMessage() {
   
   // 进度提示定时器
   const progressMessages = [
-    '正在查询飞猪航班...',
+    '正在查询飞猪交通信息...',
     '正在搜索酒店...',
     '正在查找景点和活动...',
     '正在生成方案...',
@@ -2759,6 +2860,7 @@ async function sendMessage() {
         conversation: state.conversation.slice(-6),
         plan_id: state.planId,
         budget_tier: state.budgetTier,
+        transport_mode: state.transportMode,
         preferences: state.preferences,
       }),
     });
@@ -2771,6 +2873,12 @@ async function sendMessage() {
       state.extractedParams = { ...state.extractedParams, ...data.extracted_params };
       addMessage('assistant', data.message, data.extracted_params);
       state.conversation.push({ role: 'assistant', content: data.message });
+
+      // 如果追问涉及交通方式，显示快捷选择按钮
+      const transportKeywords = ['交通', '飞机', '高铁', '动车', '火车', '航班', '偏好'];
+      if (transportKeywords.some(kw => data.message.includes(kw))) {
+        showTransportQuickReply();
+      }
     } else if (data.type === 'plan_ready') {
       state.plan = data.plan;
       state.structured = data.structured || {};
@@ -2885,7 +2993,7 @@ function renderTasks(structured) {
   
   const groups = [
     { type: 'hotel', icon: '🏨', title: '住宿', items: [] },
-    { type: 'transport', icon: '✈️', title: '交通', items: [] },
+    { type: 'transport', icon: '🚀', title: '交通', items: [] },
     { type: 'activity', icon: '🎯', title: '活动', items: [] },
     { type: 'restaurant', icon: '🍽️', title: '餐饮', items: [] },
   ];
@@ -2903,6 +3011,16 @@ function renderTasks(structured) {
       });
     }
   });
+
+  // 交通图标根据实际内容动态判断
+  const transportGroup = groups.find(g => g.type === 'transport');
+  if (transportGroup && transportGroup.items.length > 0) {
+    const hasTrain = transportGroup.items.some(i => i.title.includes('🚄') || i.title.includes('高铁') || i.title.includes('动车'));
+    const hasFlight = transportGroup.items.some(i => i.title.includes('✈️') || i.title.includes('飞机') || i.title.includes('航班'));
+    if (hasTrain && hasFlight) transportGroup.icon = '✈️🚄';
+    else if (hasTrain) transportGroup.icon = '🚄';
+    else transportGroup.icon = '✈️';
+  }
   
   container.innerHTML = groups.filter(g => g.items.length > 0).map(g => `
     <div class="checklist-group">

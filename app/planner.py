@@ -146,6 +146,10 @@ def build_scenario_text(inp: dict) -> str:
         lines.append(f"参与人数：{inp.get('group_size')}")
     if inp.get("vibe"):
         lines.append(f"氛围/偏好：{inp.get('vibe')}")
+    transport_mode = inp.get("transport_mode", "auto")
+    transport_labels = {"flight": "飞机", "train": "高铁/动车", "auto": "自动推荐"}
+    if inp.get("origin") and inp.get("origin") != inp.get("city", ""):
+        lines.append(f"交通偏好：{transport_labels.get(transport_mode, '自动推荐')}")
     return "\n".join(lines)
 
 
@@ -237,23 +241,87 @@ def build_sections(inp: dict) -> tuple:
         if direction == "outbound":
             result = flyai.search_flight(origin=origin, destination=city, dep_date=dep_date)
             title = f"✈️ 去程（{origin}→{city}，含实时票价）"
-            fallback_q = f"{origin} 到 {city} 机票/高铁"
+            fallback_q = f"{origin} 到 {city} 机票"
             if dep_date:
                 fallback_q += f" {dep_date}出发"
         else:
             result = flyai.search_flight(origin=city, destination=origin, dep_date=dep_date)
             title = f"✈️ 返程（{city}→{origin}，含实时票价）"
-            fallback_q = f"{city} 到 {origin} 机票/高铁"
+            fallback_q = f"{city} 到 {origin} 机票"
             if dep_date:
                 fallback_q += f" {dep_date}出发"
-        
+
         text = _fmt(result, limit=6)
         if not text:
             result = flyai.ai_search(fallback_q)
             text = _fmt(result, limit=6)
             title += "（备选）"
-        
+
         return (title, text, result)
+
+    def _query_train(direction, dep_date):
+        """查询火车/高铁"""
+        if direction == "outbound":
+            result = flyai.search_train(origin=origin, destination=city, dep_date=dep_date)
+            title = f"🚄 去程（{origin}→{city}，含实时票价）"
+            fallback_q = f"{origin} 到 {city} 高铁 动车"
+            if dep_date:
+                fallback_q += f" {dep_date}出发"
+        else:
+            result = flyai.search_train(origin=city, destination=origin, dep_date=dep_date)
+            title = f"🚄 返程（{city}→{origin}，含实时票价）"
+            fallback_q = f"{city} 到 {origin} 高铁 动车"
+            if dep_date:
+                fallback_q += f" {dep_date}出发"
+
+        text = _fmt(result, limit=6)
+        if not text:
+            result = flyai.ai_search(fallback_q)
+            text = _fmt(result, limit=6)
+            title += "（备选）"
+
+        return (title, text, result)
+
+    def _query_transport(direction, dep_date, transport_mode):
+        """根据交通方式偏好查询航班或火车。
+
+        transport_mode: "flight" / "train" / "auto"
+        - "auto" 时根据距离自动决定
+        - 中距离（600-1200km）且 auto 时，同时查询两种并给出对比
+        """
+        from . import transport as transport_mod
+
+        rec = transport_mod.recommend_transport(origin, city)
+        suggested = rec["suggested"]
+
+        if transport_mode == "flight":
+            return _query_flight(direction, dep_date)
+        elif transport_mode == "train":
+            return _query_train(direction, dep_date)
+        else:
+            # auto 模式
+            if suggested == "train":
+                return _query_train(direction, dep_date)
+            elif suggested == "flight":
+                return _query_flight(direction, dep_date)
+            else:
+                # 中距离：同时查两种，给用户对比
+                flight_result = _query_flight(direction, dep_date)
+                train_result = _query_train(direction, dep_date)
+                f_title, f_text, f_raw = flight_result
+                t_title, t_text, t_raw = train_result
+                dir_label = "去程" if direction == "outbound" else "返程"
+                if f_text and t_text:
+                    combined_title = f"✈️🚄 {dir_label}（{origin}→{city}，飞机/高铁对比）"
+                    combined_text = f"【飞机方案】\n{f_text}\n\n【高铁方案】\n{t_text}"
+                    combined_raw = {"data": f"{f_raw}\n---\n{t_raw}", "status": 0, "message": "both"}
+                    return (combined_title, combined_text, combined_raw)
+                elif f_text:
+                    return flight_result
+                elif t_text:
+                    return train_result
+                else:
+                    return (f_title + " / " + t_title, "", f_raw)
 
     # 准备所有查询任务
     tasks = [
@@ -263,9 +331,10 @@ def build_sections(inp: dict) -> tuple:
     ]
     
     if origin and origin != city:
-        tasks.append(("outbound", lambda: _query_flight("outbound", check_in)))
+        transport_mode = inp.get("transport_mode", "auto")
+        tasks.append(("outbound", lambda: _query_transport("outbound", check_in, transport_mode)))
         if check_out:
-            tasks.append(("return", lambda: _query_flight("return", check_out)))
+            tasks.append(("return", lambda: _query_transport("return", check_out, transport_mode)))
 
     # 并行执行所有查询
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -287,8 +356,6 @@ def build_sections(inp: dict) -> tuple:
                     )
             except Exception as e:
                 warnings.append(f"{task_name}：查询异常 - {str(e)}")
-
-    return sections, warnings
 
     return sections, warnings
 
