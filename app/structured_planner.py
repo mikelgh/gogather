@@ -9,7 +9,7 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 
 输出严格遵循以下 JSON 格式（不要 markdown 代码块）：
 {{
-    "summary": "一段话概述方案（50字内）",
+    "summary": "一段话概述方案（80字内），必须包含：人数、出发地→目的地、日期、天数、交通方式、活动类型、预算档次等所有关键信息",
     "action_items": [
         {{
             "id": "hotel-1",
@@ -185,6 +185,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 ==== 飞猪结果结束 ====
 
 硬性要求：
+0. **summary 必须包含所有关键信息**：{group_size}人、{origin}→{city}、{check_in}至{check_out}、交通方式（{origin}出发的交通类型）、活动类型（{params.get('activity_type', '聚会')}）、预算档次（{budget_tier}）
 1. action_items 与 timeline 中的每个项目都必须带上飞猪结果里的「预订链接」原文
 2. price / estimated_cost 必须优先使用飞猪结果中的真实价格（如「价格: ¥554」）
 3. **若飞猪结果无价格**：timeline.price 填"点击预订链接查看实时价格"，budget 中该项不计入总额但 description 注明"需通过预订链接确认价格"

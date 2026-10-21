@@ -139,9 +139,9 @@ def format_structured(data, limit: int = 8) -> str:
         return ""
     lines = []
     for it in items[:limit]:
-        # 机票/火车票结构：ticketPrice + journeys[].segments[]（航班号或车次号/时刻/站点）
+        # 机票/火车票结构：ticketPrice（机票）或 price（火车票）+ journeys[].segments[]
         if "journeys" in it:
-            price = it.get("ticketPrice")
+            price = it.get("ticketPrice") or it.get("price")
             journeys = it.get("journeys") or []
             seg_parts = []
             is_train = False
