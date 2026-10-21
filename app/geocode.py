@@ -11,6 +11,8 @@ CITY_COORDS = {
     "北京": (39.9042, 116.4074),
     "广州": (23.1291, 113.2644),
     "成都": (30.5728, 104.0668),
+    "九寨沟": (33.2667, 103.9167),
+    "乐山": (29.5467, 103.7767),
     "南京": (32.0603, 118.7969),
     "武汉": (30.5928, 114.3055),
     "西安": (34.3416, 108.9398),
@@ -87,6 +89,20 @@ POI_COORDS = {
         "宽窄巷子": (30.6767, 104.0367),
         "成都东站": (30.6167, 104.1467),
         "成都站": (30.6967, 104.0767),
+        "大熊猫繁育研究基地": (30.7367, 104.1467),
+        "东郊记忆": (30.6567, 104.1167),
+        "川菜博物馆": (30.7067, 103.9567),
+        "蜀风雅韵": (30.6667, 104.0567),
+        "漫花庄园": (30.7867, 104.0867),
+        "飞越丛林": (30.7267, 104.0267),
+    },
+    "九寨沟": {
+        "九寨沟风景区": (33.2667, 103.9167),
+        "九寨沟": (33.2667, 103.9167),
+    },
+    "乐山": {
+        "乐山大佛": (29.5467, 103.7767),
+        "乐山大佛景区": (29.5467, 103.7767),
     },
     "南京": {
         "中山陵": (32.0667, 118.8567),
@@ -116,6 +132,14 @@ POI_COORDS = {
 }
 
 
+def _extract_cities(city: str) -> list:
+    """从多城市名称中提取所有城市名（如"成都 + 九寨沟 + 乐山" → ["成都", "九寨沟", "乐山"]）。"""
+    import re
+    # 按 +、,、，、/ 等分隔符拆分
+    parts = re.split(r'[+,，/、\s]+', city)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def geocode(location: str, city: str) -> tuple[float, float] | None:
     """把地点文本转成 (lat, lng)。未命中返回 None。"""
     if not location:
@@ -123,7 +147,16 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
 
     import re
 
-    city_pois = POI_COORDS.get(city, {})
+    # 支持多城市名称（如"成都 + 九寨沟 + 乐山"）
+    cities = _extract_cities(city)
+    
+    # 尝试所有城市的 POI
+    for c in cities:
+        city_pois = POI_COORDS.get(c, {})
+        # 精确匹配 POI
+        for poi_name, coords in city_pois.items():
+            if poi_name in location:
+                return coords
 
     # 精确匹配 POI
     for poi_name, coords in city_pois.items():
@@ -153,8 +186,11 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
             if station_name in city_pois:
                 return city_pois[station_name]
 
-    # 回退到城市中心
-    return CITY_COORDS.get(city)
+    # 回退到第一个城市的中心坐标
+    for c in cities:
+        if c in CITY_COORDS:
+            return CITY_COORDS[c]
+    return None
 
 
 def geocode_timeline(timeline: list, city: str) -> list:
