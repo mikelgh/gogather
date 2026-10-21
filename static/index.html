@@ -792,6 +792,42 @@ body {
   border-color: var(--primary);
 }
 
+.restaurant-rec-btn {
+  margin-top: 8px;
+  padding: 7px 14px;
+  border: 1.5px dashed rgba(99,102,241,0.5);
+  border-radius: 10px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+}
+
+.restaurant-rec-btn:hover:not(:disabled) { border-style: solid; transform: translateY(-1px); }
+.restaurant-rec-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.restaurant-options {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.restaurant-option {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.restaurant-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.restaurant-highlights { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 4px; }
+.restaurant-option .booking-link { margin-top: 6px; }
+.restaurant-note { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+
 .timeline-content p {
   font-size: 13px;
   color: var(--text-secondary);
@@ -2940,12 +2976,16 @@ function renderTimeline(structured) {
   container.innerHTML = timeline.map((item, i) => {
     const priceText = item.price || '';
     const isPlaceholder = priceText.includes('点击预订') || priceText.includes('实时价格');
-    const priceHtml = priceText ? 
-      (isPlaceholder && item.booking_link ? 
-        `<a class="timeline-price timeline-price-link" href="${item.booking_link}" target="_blank" rel="noopener">${priceText}</a>` : 
-        `<span class="timeline-price">${priceText}</span>`) : 
+    const priceHtml = priceText ?
+      (isPlaceholder && item.booking_link ?
+        `<a class="timeline-price timeline-price-link" href="${item.booking_link}" target="_blank" rel="noopener">${priceText}</a>` :
+        `<span class="timeline-price">${priceText}</span>`) :
       '';
-    
+
+    // 模糊用餐项（无预订链接）提供"查找附近餐厅"
+    const isMeal = /午餐|晚餐|早餐|聚餐|用餐/.test((item.title || '') + (item.notes || ''));
+    const recHtml = isMeal && !item.booking_link ? renderRestaurantRec(item, i) : '';
+
     return `
     <div class="timeline-item" style="animation: fadeInUp 0.3s ease ${i * 0.05}s both;">
       <div class="timeline-time">${item.time_range || ''}</div>
@@ -2954,9 +2994,47 @@ function renderTimeline(structured) {
         <p>${item.notes || ''}</p>
         ${item.location ? `<div class="location">${item.location}</div>` : ''}
         ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
+        ${recHtml}
       </div>
     </div>
   `}).join('');
+}
+
+function renderRestaurantRec(item, index) {
+  if (item.restaurant_options && item.restaurant_options.length > 0) {
+    const opts = item.restaurant_options.map(o => `
+      <div class="restaurant-option">
+        <div class="restaurant-name">${o.name}</div>
+        ${o.highlights ? `<div class="restaurant-highlights">${o.highlights}</div>` : ''}
+        <a class="booking-link" href="${o.url}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>
+      </div>`).join('');
+    return `<div class="restaurant-options">${opts}</div>`;
+  }
+  if (item.restaurant_options_note) {
+    return `<div class="restaurant-note">${item.restaurant_options_note}</div>`;
+  }
+  return `<button class="restaurant-rec-btn" data-item-index="${index}" onclick="fetchRestaurantRec(${index}, this)">🔍 查找附近餐厅</button>`;
+}
+
+async function fetchRestaurantRec(index, btn) {
+  btn.disabled = true;
+  btn.textContent = '正在查询飞猪餐厅数据...';
+  try {
+    const resp = await authFetch(`/api/plan/${state.planId}/recommend_restaurants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_index: index }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '查询失败');
+    state.structured.timeline[index].restaurant_options = data.options;
+    state.structured.timeline[index].restaurant_options_note = data.note;
+    renderTimeline(state.structured);
+  } catch (err) {
+    showToast(err.message || '餐厅查询失败', 'error');
+    btn.disabled = false;
+    btn.textContent = '🔍 查找附近餐厅';
+  }
 }
 
 function renderBudget(structured) {

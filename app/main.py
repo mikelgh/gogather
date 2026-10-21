@@ -1,5 +1,6 @@
 """FastAPI 应用入口：页面、认证、规划、对话、实施跟踪接口。"""
 import os
+import re
 import uuid
 import secrets
 from datetime import datetime
@@ -56,6 +57,10 @@ class ChatRequest(BaseModel):
 
 class TaskUpdateRequest(BaseModel):
     status: str
+
+
+class RestaurantRecommendRequest(BaseModel):
+    item_index: int
 
 
 class ReviseRequest(BaseModel):
@@ -688,6 +693,66 @@ def api_get_shared(code: str):
     if not plan:
         raise HTTPException(status_code=404, detail="分享码无效")
     return plan
+
+
+def _recommend_restaurants(plan: dict, item_index: int) -> dict:
+    """为时间线中的用餐项推荐 2-3 家附近餐厅，结果持久化到 timeline 项里。"""
+    from . import flyai_client
+
+    timeline = plan.get("timeline") or []
+    if item_index < 0 or item_index >= len(timeline):
+        raise HTTPException(status_code=404, detail="时间线项目不存在")
+    item = timeline[item_index]
+
+    params = plan.get("params") or {}
+    city = params.get("city", "")
+    group = re.sub(r"[^\d]", "", str(params.get("group_size", ""))) or "团体"
+    budget_hint = {
+        "经济型": "人均100元以内",
+        "舒适型": "人均100-200元",
+        "豪华型": "人均200元以上",
+    }.get(params.get("budget_tier"), "人均100-200元")
+
+    # 从用餐项的地点/标题提取商圈关键词（多商圈只取第一个，斜杠会干扰飞猪检索）
+    raw = item.get("location") or item.get("title") or ""
+    area = re.sub(r"午餐|晚餐|早餐|用餐|：|:|团体|集中|聚餐|建议.*$|，.*$", "", raw)
+    area = re.sub(r"(餐厅|中档|高档|经济型|周边|附近|片区)+", "", area)
+    area = area.split("/")[0].strip(" /、，")
+
+    query = f"{city}{area}附近适合{group}人团体聚餐的热门餐厅 {budget_hint}"
+    options = []
+    for _attempt in range(2):  # flyai 餐厅数据偶发为空，取两次中成功的一次
+        result = flyai_client.ai_search(query)
+        text = result.get("data", "") if isinstance(result, dict) else str(result)
+        options = flyai_client.parse_restaurants(text)
+        if options:
+            break
+
+    item["restaurant_options"] = options
+    item["restaurant_options_note"] = None if options else "飞猪暂未找到符合条件的餐厅，建议扩大商圈或直接电话预订"
+    plan["timeline"] = timeline
+    plan["updated_at"] = datetime.now().isoformat()
+    db.save_plan(plan)
+    return {"options": options, "note": item["restaurant_options_note"], "query": query}
+
+
+@app.post("/api/plan/{plan_id}/recommend_restaurants")
+def api_recommend_restaurants(plan_id: str, req: RestaurantRecommendRequest,
+                              user: dict = Depends(get_current_user)):
+    """为方案中某个用餐项推荐附近餐厅（需登录，仅方案所有者）。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return _recommend_restaurants(plan, req.item_index)
+
+
+@app.post("/api/share/{code}/recommend_restaurants")
+def api_share_recommend_restaurants(code: str, req: RestaurantRecommendRequest):
+    """分享页访客也可触发餐厅推荐（只能通过分享码操作该方案）。"""
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        raise HTTPException(status_code=404, detail="分享码无效")
+    return _recommend_restaurants(plan, req.item_index)
 
 
 @app.get("/api/plans")

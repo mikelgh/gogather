@@ -206,6 +206,31 @@ def ai_search(query: str) -> dict:
     return _run("ai-search", {"query": query})
 
 
+def parse_restaurants(text: str, limit: int = 3) -> list:
+    """从 ai-search 返回的餐厅推荐文本中解析结构化餐厅列表。
+
+    识别格式：**[餐厅名](预订链接)** 后跟 - **亮点**：... 等要点行。
+    返回 [{name, url, highlights}]，highlights 为要点拼接的简短描述。
+    """
+    import re
+    results = []
+    if not text:
+        return results
+    # 按 "**[名称](链接)**" 切分块
+    pattern = re.compile(r"\*\*\[([^\]]+)\]\((https?://[^)]+)\)\*\*")
+    matches = list(pattern.finditer(text))
+    for i, m in enumerate(matches[:limit]):
+        name = m.group(1).strip()
+        url = m.group(2).strip()
+        block_start = m.end()
+        block_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block = text[block_start:block_end]
+        points = re.findall(r"-\s*\*\*([^*：:]+)\*\*[：:]\s*([^\n]+)", block)
+        highlights = "；".join(f"{k.strip()}：{v.strip().replace('**', '')}" for k, v in points[:3])
+        results.append({"name": name, "url": url, "highlights": highlights})
+    return results
+
+
 def keyword_search(query: str) -> dict:
     return _run("keyword-search", {"query": query})
 
