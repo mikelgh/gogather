@@ -722,6 +722,10 @@ function renderPlan(plan) {
   }
 
   html += `
+    <div class="section" id="remindersSection" style="display: none;">
+      <div class="section-title">行程提醒</div>
+      <div id="remindersContent"></div>
+    </div>
     <div class="cta-section">
       <h3>也想创建你的出行方案？</h3>
       <p>一句话告诉 GoGather 你的活动需求，AI 帮你安排一切</p>
@@ -731,8 +735,35 @@ function renderPlan(plan) {
   `;
 
   document.getElementById('app').innerHTML = html;
-  // 延迟渲染地图，确保 DOM 已更新
-  setTimeout(renderShareMap, 100);
+  // 延迟渲染地图和提醒，确保 DOM 已更新
+  setTimeout(() => { renderShareMap(); renderShareReminders(); }, 100);
+}
+
+async function renderShareReminders() {
+  try {
+    const resp = await fetch(`/api/share/${code}/reminders`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const reminders = data.reminders || [];
+    if (reminders.length === 0) return;
+    const section = document.getElementById('remindersSection');
+    const content = document.getElementById('remindersContent');
+    if (!section || !content) return;
+    section.style.display = 'block';
+    content.innerHTML = `
+      <div style="padding: 8px 0;">
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">共${reminders.length}项提醒</div>
+        ${reminders.map(r => `
+          <div style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 8px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${r.time}</div>
+            <div style="font-size: 14px; font-weight: 500;">${r.title}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } catch (err) {
+    console.error('Reminders render failed:', err);
+  }
 }
 
 loadSharedPlan();

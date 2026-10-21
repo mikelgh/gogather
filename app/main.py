@@ -815,6 +815,66 @@ def api_share_map(code: str):
     }
 
 
+@app.get("/api/plan/{plan_id}/reminders")
+def api_plan_reminders(plan_id: str, user: dict = Depends(get_current_user)):
+    """返回方案的提醒列表（基于时间线生成）。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return _build_reminders(plan)
+
+
+@app.get("/api/share/{code}/reminders")
+def api_share_reminders(code: str):
+    """分享页提醒列表（无需登录）。"""
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        raise HTTPException(status_code=404, detail="分享码无效")
+    return _build_reminders(plan)
+
+
+def _build_reminders(plan: dict) -> dict:
+    """从时间线生成提醒列表。"""
+    import re
+    from datetime import datetime, timedelta
+
+    timeline = plan.get("timeline", [])
+    params = plan.get("params", {})
+    check_in = params.get("check_in", "")
+    reminders = []
+
+    for item in timeline:
+        time_range = item.get("time_range", "")
+        title = item.get("title", "")
+        # 解析 Day N HH:MM
+        m = re.match(r"Day\s*(\d+)\s+(\d{1,2}:\d{2})", time_range, re.IGNORECASE)
+        if not m:
+            continue
+        day_num = int(m.group(1))
+        time_str = m.group(2)
+        # 计算实际日期
+        if check_in:
+            try:
+                base = datetime.fromisoformat(check_in)
+                actual_date = base + timedelta(days=day_num - 1)
+                date_str = actual_date.strftime("%m-%d")
+            except:
+                date_str = f"Day{day_num}"
+        else:
+            date_str = f"Day{day_num}"
+
+        # 生成提醒文本
+        reminder_text = f"{date_str} {time_str} {title}"
+        reminders.append({
+            "time": f"{date_str} {time_str}",
+            "title": title,
+            "text": reminder_text,
+            "action_item_id": item.get("action_item_id"),
+        })
+
+    return {"reminders": reminders, "total": len(reminders)}
+
+
 @app.get("/api/plans")
 def api_list_plans(user: dict = Depends(get_current_user)):
     return db.list_plans(user["id"])

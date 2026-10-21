@@ -2206,6 +2206,7 @@ body {
       <button class="plan-tab active" data-tab="timeline" onclick="switchPlanTab('timeline')">时间线</button>
       <button class="plan-tab" data-tab="budget" onclick="switchPlanTab('budget')">预算</button>
       <button class="plan-tab" data-tab="tasks" onclick="switchPlanTab('tasks')">待办</button>
+      <button class="plan-tab" data-tab="reminders" onclick="switchPlanTab('reminders')">提醒</button>
     </div>
 
     <div class="plan-content">
@@ -2224,6 +2225,10 @@ body {
 
       <div class="tab-content hidden" id="tasksTab">
         <div id="tasksContent"></div>
+      </div>
+
+      <div class="tab-content hidden" id="remindersTab">
+        <div id="remindersList"></div>
       </div>
     </div>
 
@@ -2710,7 +2715,39 @@ function switchPlanTab(tab) {
   document.getElementById('timelineTab').classList.toggle('hidden', tab !== 'timeline');
   document.getElementById('budgetTab').classList.toggle('hidden', tab !== 'budget');
   document.getElementById('tasksTab').classList.toggle('hidden', tab !== 'tasks');
+  document.getElementById('remindersTab').classList.toggle('hidden', tab !== 'reminders');
   if (tab === 'timeline' && state.planId) renderMap();
+  if (tab === 'reminders' && state.planId) renderReminders();
+}
+
+async function renderReminders() {
+  const container = document.getElementById('remindersList');
+  if (!container) return;
+  try {
+    const resp = await authFetch(`/api/plan/${state.planId}/reminders`);
+    if (!resp.ok) { container.innerHTML = '<div class="empty-state">加载失败</div>'; return; }
+    const data = await resp.json();
+    const reminders = data.reminders || [];
+    if (reminders.length === 0) {
+      container.innerHTML = '<div class="empty-state">暂无提醒</div>';
+      return;
+    }
+    container.innerHTML = `
+      <div style="padding: 16px;">
+        <h3 style="margin-bottom: 16px;">行程提醒（共${reminders.length}项）</h3>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          ${reminders.map(r => `
+            <div style="padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);">
+              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${r.time}</div>
+              <div style="font-size: 14px; font-weight: 500;">${r.title}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">加载失败</div>';
+  }
 }
 
 async function renderMap() {
