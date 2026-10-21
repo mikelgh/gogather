@@ -162,8 +162,16 @@ def format_structured(data, limit: int = 8) -> str:
         if name:
             parts.append(f"名称: {name}")
         price = it.get("price")
-        if not price and isinstance(it.get("ticketInfo"), dict):
-            price = it["ticketInfo"].get("price")
+        # 处理 ticketInfo 可能是 dict 或 list（多个票种）
+        ticket_info = it.get("ticketInfo")
+        if ticket_info:
+            if isinstance(ticket_info, list):
+                # 多个票种：如门票 10 元、游船 69 元
+                ticket_prices = [f"{t.get('name', '')}{t.get('price', '')}" for t in ticket_info if t.get('price')]
+                if ticket_prices:
+                    parts.append(f"票价：{'；'.join(ticket_prices)}")
+            elif isinstance(ticket_info, dict):
+                price = ticket_info.get("price") or price
         if price:
             parts.append(f"价格: {price}")
         star = it.get("star") or it.get("poiLevel")
