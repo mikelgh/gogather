@@ -53,8 +53,11 @@ body {
   background: rgba(255,255,255,0.85);
   border-bottom: 1px solid var(--border);
   padding: 12px 24px;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
+  height: 57px;
   z-index: 100;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -1534,6 +1537,7 @@ body {
   display: flex;
   height: calc(100vh - 57px);
   overflow: hidden;
+  margin-top: 57px;
 }
 
 .sidebar {
@@ -1544,6 +1548,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-height: 100%;
 }
 
 .sidebar-header {
