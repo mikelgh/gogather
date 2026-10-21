@@ -2429,7 +2429,16 @@ async function sendMessage() {
   
   input.value = '';
   input.style.height = 'auto';
-  addMessage('user', message);
+  
+  // 构建参数预览（预算档次 + 偏好标签）
+  const msgParams = {};
+  if (state.budgetTier && state.budgetTier !== '舒适型') {
+    msgParams.budget_tier = state.budgetTier;
+  }
+  if (state.preferences && state.preferences.length > 0) {
+    msgParams.preferences = state.preferences.join('、');
+  }
+  addMessage('user', message, msgParams);
   
   state.isSending = true;
   const sendBtn = document.getElementById('sendBtn');
