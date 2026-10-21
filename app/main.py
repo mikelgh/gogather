@@ -236,7 +236,9 @@ def share_page(code: str):
         
         title = f"{origin}→{city} 出行方案" if origin and city else f"{city} 出行方案" if city else "出行方案"
         og_title = f"GoGather 聚行 · {title}"
-        group_label = group_size if group_size and "人" in group_size else f"{group_size}人" if group_size else ""
+        # 确保 group_size 是字符串
+        group_size_str = str(group_size) if group_size else ""
+        group_label = group_size_str if group_size_str and "人" in group_size_str else f"{group_size_str}人" if group_size_str else ""
         desc_parts = [date_range, group_label]
         desc = " · ".join(filter(None, desc_parts)) or summary or "AI 生成的出行方案"
         # 替换 meta 标签
