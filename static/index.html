@@ -2255,6 +2255,15 @@ async function initAuth() {
     }
   }
 
+  // Check if already logged in and should redirect
+  const storedToken = localStorage.getItem('juxing_token');
+  const storedUser = JSON.parse(localStorage.getItem('juxing_user') || 'null');
+  
+  if (storedToken && storedUser && returnTo === 'admin') {
+    window.location.href = '/admin';
+    return;
+  }
+
   if (state.token && state.user) {
     document.getElementById('authModal').classList.add('hidden');
     showUserMenu();
