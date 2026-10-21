@@ -227,14 +227,33 @@ def build_sections(inp: dict) -> tuple:
         
         return (title, text, result)
 
-    def _query_food():
-        """查询美食"""
-        q_food = f"{city} 适合{group or '团体'}聚餐的特色餐厅 人均消费"
+    def _query_food(area_hints: list | None = None):
+        """查询美食：优先按活动商圈精准检索（飞猪对带商圈的查询命中率远高于全市泛查）"""
+        group_num = re.sub(r"[^\d]", "", str(group))
+        budget_hint = {
+            "经济型": "人均100元以内",
+            "舒适型": "人均100-200元",
+            "豪华型": "人均200元以上",
+        }.get(inp.get("budget_tier"), "人均100-200元")
+        base_q = f"{city} 适合{group_num or '团体'}人团体聚餐的热门餐厅 {budget_hint}"
         if vibe:
-            q_food += f" 偏好{vibe}"
-        result = flyai.ai_search(q_food)
-        text = _fmt(result, limit=8)
-        return ("🍜 美食聚餐", text, result)
+            base_q += f" 偏好{vibe}"
+        queries = [
+            f"{city}{area}附近适合{group_num or '团体'}人团体聚餐的热门餐厅 {budget_hint}"
+            for area in (area_hints or [])[:2]
+        ]
+        queries.append(base_q)
+        texts = []
+        first_result = None
+        for q in queries:
+            result = flyai.ai_search(q)
+            if first_result is None:
+                first_result = result
+            text = _fmt(result, limit=8)
+            if text:
+                texts.append(text)
+        merged = "\n\n---\n\n".join(texts)
+        return ("🍜 美食聚餐", merged, first_result)
 
     def _query_flight(direction, dep_date):
         """查询航班"""
@@ -323,11 +342,10 @@ def build_sections(inp: dict) -> tuple:
                 else:
                     return (f_title + " / " + t_title, "", f_raw)
 
-    # 准备所有查询任务
+    # 准备所有查询任务（food 依赖 poi 结果提取商圈，稍后单独执行）
     tasks = [
         ("hotel", _query_hotel),
         ("poi", _query_poi),
-        ("food", _query_food),
     ]
     
     if origin and origin != city and check_in:
@@ -358,6 +376,24 @@ def build_sections(inp: dict) -> tuple:
                     )
             except Exception as e:
                 warnings.append(f"{task_name}：查询异常 - {str(e)}")
+
+    # 美食查询：从景点结果提取活动商圈，带商圈精准查餐厅
+    poi_text = next((data for t, data in sections if "玩法" in t or "景点" in t), "")
+    area_hints = []
+    for name in re.findall(r"名称[：:]\s*([^\n；;，,|]+)", poi_text)[:4]:
+        area = name.strip()
+        if area.startswith(city):
+            area = area[len(city):]
+        if 2 <= len(area) <= 10 and area not in area_hints:
+            area_hints.append(area)
+    try:
+        title, text, result = _query_food(area_hints)
+        if text:
+            sections.append((title, text))
+        else:
+            warnings.append(f"{title}：飞猪未返回数据（status={result.get('status')}）")
+    except Exception as e:
+        warnings.append(f"food：查询异常 - {str(e)}")
 
     return sections, warnings
 

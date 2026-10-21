@@ -225,7 +225,8 @@ def parse_restaurants(text: str, limit: int = 3) -> list:
         block_start = m.end()
         block_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         block = text[block_start:block_end]
-        points = re.findall(r"-\s*\*\*([^*：:]+)\*\*[：:]\s*([^\n]+)", block)
+        points = re.findall(r"-\s*(?:\*\*)?([^*：:\n]{1,12})(?:\*\*)?[：:]\s*([^\n]+)", block)
+        points = [(k, v) for k, v in points if k.strip() not in ("地址",)]
         highlights = "；".join(f"{k.strip()}：{v.strip().replace('**', '')}" for k, v in points[:3])
         results.append({"name": name, "url": url, "highlights": highlights})
     return results
