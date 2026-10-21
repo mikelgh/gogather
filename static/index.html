@@ -835,6 +835,15 @@ body {
   line-height: 1.6;
 }
 
+.timeline-image {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin: 8px 0;
+  box-shadow: var(--shadow-sm);
+}
+
 .timeline-content .location {
   display: inline-flex;
   align-items: center;
@@ -2751,25 +2760,34 @@ async function renderReminders() {
   }
 }
 
+let shareMapInstance = null; // 分享页地图实例
+let planMapInstance = null; // 方案页地图实例
+
 async function renderMap() {
   const container = document.getElementById('mapContainer');
-  if (!container || container.style.display === 'block') return; // 已渲染
+  if (!container) return;
+  // 清除旧地图
+  if (planMapInstance) {
+    planMapInstance.remove();
+    planMapInstance = null;
+  }
+  container.innerHTML = '';
+  container.style.display = 'none';
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/map`);
     if (!resp.ok) return;
     const data = await resp.json();
     const timeline = data.timeline || [];
     const points = timeline.filter(t => t.lat && t.lng);
-    if (points.length === 0) {
-      container.style.display = 'none';
-      return;
-    }
+    if (points.length === 0) return;
     container.style.display = 'block';
     const map = L.map('mapContainer').setView([points[0].lat, points[0].lng], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
+    planMapInstance = map;
+    L.tileLayer('https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=8', {
+      attribution: '© 高德地图',
       maxZoom: 18,
     }).addTo(map);
+    setTimeout(() => map.invalidateSize(), 100);
     const dayColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
     const markers = [];
     points.forEach((item, i) => {
@@ -2805,6 +2823,16 @@ function startOver() {
   localStorage.removeItem('juxing_planId');
   document.getElementById('chatMessages').innerHTML = '';
   document.getElementById('shareResult').style.display = 'none';
+  // 清除地图实例
+  if (planMapInstance) {
+    planMapInstance.remove();
+    planMapInstance = null;
+  }
+  const mapContainer = document.getElementById('mapContainer');
+  if (mapContainer) {
+    mapContainer.innerHTML = '';
+    mapContainer.style.display = 'none';
+  }
   switchView('chat');
   document.getElementById('chatInput').focus();
   loadPlanList();
@@ -3073,6 +3101,7 @@ function showPlan(plan, planId, structured = {}) {
   renderTimeline(structured);
   renderBudget(structured);
   renderTasks(structured);
+  if (planId) setTimeout(() => renderMap(), 200);
 }
 
 function renderTimeline(structured) {
@@ -3102,6 +3131,7 @@ function renderTimeline(structured) {
       <div class="timeline-time">${item.time_range || ''}</div>
       <div class="timeline-content">
         <h4>${item.title || ''}${priceHtml}</h4>
+        ${item.image ? `<img class="timeline-image" src="${item.image}" alt="${item.title || ''}" loading="lazy" onerror="this.style.display='none'">` : ''}
         <p>${item.notes || ''}</p>
         ${item.location ? `<div class="location">${item.location}</div>` : ''}
         ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}

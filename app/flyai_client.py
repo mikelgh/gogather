@@ -197,6 +197,9 @@ def format_structured(data, limit: int = 8) -> str:
         link = it.get("detailUrl") or it.get("jumpUrl")
         if link:
             parts.append(f"预订链接: {link}")
+        pic = it.get("mainPic") or it.get("image") or it.get("pic")
+        if pic:
+            parts.append(f"图片：{pic}")
         lines.append("- " + "；".join(parts))
     return "\n".join(lines)
 

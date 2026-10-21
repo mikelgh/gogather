@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GoGather 聚行 · 方案分享</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="GoGather 聚行">
+<meta property="og:title" content="GoGather 聚行 · 出行方案">
+<meta property="og:description" content="AI 生成的出行方案，含实时价格与预订链接">
+<meta property="og:image" content="/og-cover.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -210,6 +216,15 @@ body {
 }
 
 .timeline-item:last-child { border-bottom: none; }
+
+.timeline-image {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin: 8px 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
 
 .timeline-time {
   width: 72px;
@@ -612,9 +627,10 @@ async function renderShareMap() {
     const points = (data.timeline || []).filter(t => t.lat && t.lng);
     if (points.length === 0) { container.style.display = 'none'; return; }
     const map = L.map('shareMap').setView([points[0].lat, points[0].lng], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 18,
+    L.tileLayer('https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=8', {
+      attribution: '© 高德地图', maxZoom: 18,
     }).addTo(map);
+    setTimeout(() => map.invalidateSize(), 100);
     const dayColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
     const markers = points.map(item => {
       const dayMatch = (item.time_range || '').match(/Day\s*(\d+)/i);
@@ -645,6 +661,15 @@ function renderPlan(plan) {
   const dateRange = checkIn && checkOut ? `${checkIn.slice(5)} ~ ${checkOut.slice(5)}` : '';
   const groupSize = plan.params?.group_size || '';
 
+  // 更新 OpenGraph meta 标签
+  const origin = plan.params?.origin || '';
+  const title = city ? `${origin ? origin + '→' : ''}${city} 出行方案` : '出行方案';
+  const descParts = [dateRange, groupSize ? `${groupSize}人` : ''].filter(Boolean);
+  const desc = descParts.length > 0 ? descParts.join(' · ') : summary || 'AI 生成的出行方案';
+  document.title = `GoGather 聚行 · ${title}`;
+  document.querySelector('meta[property="og:title"]').content = title;
+  document.querySelector('meta[property="og:description"]').content = desc;
+
   let html = `
     <div class="plan-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 32px 24px; border-radius: 16px; margin-bottom: 24px;">
       <div style="font-size: 12px; opacity: 0.9; margin-bottom: 8px;">GoGather 聚行</div>
@@ -668,6 +693,7 @@ function renderPlan(plan) {
             <div class="timeline-time">${item.time_range || ''}</div>
             <div class="timeline-content">
               <h4>${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
+              ${item.image ? `<img class="timeline-image" src="${item.image}" alt="${item.title || ''}" loading="lazy" onerror="this.style.display='none'">` : ''}
               ${item.notes ? `<p>${item.notes}</p>` : ''}
               ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener"> 飞猪预订/验价</a>` : ''}
               ${renderRestaurantRec(item, i)}

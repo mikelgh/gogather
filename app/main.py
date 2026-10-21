@@ -158,9 +158,106 @@ def logo():
     )
 
 
+@app.get("/og-cover.png")
+def og_cover():
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "og-cover.png"),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/share/{code}/cover.png")
+def share_cover(code: str):
+    """动态生成分享封面图。"""
+    from fastapi.responses import Response
+    from . import cover_generator
+    
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        # 返回默认封面
+        return FileResponse(
+            os.path.join(BASE_DIR, "static", "og-cover.png"),
+            media_type="image/png",
+        )
+    
+    params = plan.get("params") or {}
+    city = params.get("city", "")
+    origin = params.get("origin", "")
+    check_in = params.get("check_in", "")
+    check_out = params.get("check_out", "")
+    group_size = params.get("group_size", "")
+    summary = plan.get("summary", "")
+    
+    date_range = ""
+    if check_in and check_out:
+        date_range = f"{check_in[5:]} ~ {check_out[5:]}"
+    
+    # 生成封面图（优先使用 AI 背景）
+    png_data = cover_generator.generate_cover_with_ai(
+        city=city,
+        date_range=date_range,
+        group_size=group_size,
+        summary=summary,
+        origin=origin,
+        use_ai=True,
+    )
+    
+    return Response(
+        content=png_data,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/share/{code}")
 def share_page(code: str):
-    return FileResponse(os.path.join(BASE_DIR, "static", "share.html"))
+    """分享页：服务端渲染 OpenGraph meta 标签，供微信等社交平台抓取。"""
+    from fastapi.responses import HTMLResponse
+    
+    plan = db.get_plan_by_share(code)
+    html_path = os.path.join(BASE_DIR, "static", "share.html")
+    
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    
+    if plan:
+        params = plan.get("params") or {}
+        city = params.get("city", "")
+        origin = params.get("origin", "")
+        check_in = params.get("check_in", "")
+        check_out = params.get("check_out", "")
+        group_size = params.get("group_size", "")
+        summary = plan.get("summary", "")
+        
+        date_range = ""
+        if check_in and check_out:
+            date_range = f"{check_in[5:]} ~ {check_out[5:]}"
+        
+        title = f"{origin}→{city} 出行方案" if origin and city else f"{city} 出行方案" if city else "出行方案"
+        og_title = f"GoGather 聚行 · {title}"
+        group_label = group_size if group_size and "人" in group_size else f"{group_size}人" if group_size else ""
+        desc_parts = [date_range, group_label]
+        desc = " · ".join(filter(None, desc_parts)) or summary or "AI 生成的出行方案"
+        # 替换 meta 标签
+        html = html.replace(
+            '<meta property="og:title" content="GoGather 聚行 · 出行方案">',
+            f'<meta property="og:title" content="{og_title}">'
+        )
+        html = html.replace(
+            '<meta property="og:description" content="AI 生成的出行方案，含实时价格与预订链接">',
+            f'<meta property="og:description" content="{desc}">'
+        )
+        html = html.replace(
+            '<meta property="og:image" content="/og-cover.png">',
+            f'<meta property="og:image" content="/share/{code}/cover.png">'
+        )
+        html = html.replace(
+            '<title>GoGather 聚行 · 方案分享</title>',
+            f'<title>GoGather 聚行 · {title}</title>'
+        )
+    
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/admin")
