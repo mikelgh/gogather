@@ -94,8 +94,8 @@ def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
     return {"id": payload["sub"], "username": payload.get("username", "")}
 
 
-# Admin whitelist - only these GitHub usernames can access admin endpoints
-ADMIN_GITHUB_USERNAMES = {"mikelgh", "mikelgh2026"}
+# Admin whitelist - only this GitHub username can access admin endpoints
+ADMIN_GITHUB_USERNAMES = {"mikelgh"}
 
 
 def get_admin_user(authorization: str | None = Header(None)) -> dict:
