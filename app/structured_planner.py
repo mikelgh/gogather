@@ -98,12 +98,14 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 """
 
 
-def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
+def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = None, plan_id: str = None) -> dict:
     """基于飞猪查询结果生成结构化方案。
 
     Args:
         params: 用户参数 {city, check_in, check_out, origin, group_size, vibe}
         flyai_sections: [(title, data), ...] 飞猪查询结果
+        user_id: 用户ID（用于追踪 AI 使用量）
+        plan_id: 方案ID（用于追踪 AI 使用量）
 
     Returns:
         结构化方案 dict
@@ -184,7 +186,8 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 请输出严格的 JSON 格式方案。
 """
 
-    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=6000)
+    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=6000,
+                                user_id=user_id, plan_id=plan_id, action="generate_structured_plan")
     if not result:
         return _fallback_structured(params, flyai_sections)
 
@@ -290,13 +293,15 @@ REVISE_PLAN_SYSTEM = """你是一个旅行方案修改助手。根据用户的�
 """
 
 
-def revise_plan(params: dict, current_plan: dict, revision_message: str) -> dict:
+def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id: str = None, plan_id: str = None) -> dict:
     """基于用户反馈修改现有方案。
 
     Args:
         params: 原始用户参数
         current_plan: 当前结构化方案
         revision_message: 用户的修改要求
+        user_id: 用户ID（用于追踪 AI 使用量）
+        plan_id: 方案ID（用于追踪 AI 使用量）
 
     Returns:
         修改后的结构化方案
@@ -318,7 +323,8 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str) -> dict
 请根据用户要求修改方案，输出完整的更新后 JSON。
 """
 
-    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000, use_fast_model=True)
+    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000, use_fast_model=True,
+                                user_id=user_id, plan_id=plan_id, action="revise_plan")
     if not result:
         return current_plan
 

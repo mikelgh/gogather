@@ -94,6 +94,44 @@ def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
     return {"id": payload["sub"], "username": payload.get("username", "")}
 
 
+# Admin whitelist - only these GitHub usernames can access admin endpoints
+ADMIN_GITHUB_USERNAMES = {"mikelgh"}
+
+
+def get_admin_user(authorization: str | None = Header(None)) -> dict:
+    """管理员认证：仅允许白名单内的 GitHub 用户。"""
+    user = get_current_user(authorization)
+    if user["username"] not in ADMIN_GITHUB_USERNAMES:
+        raise HTTPException(status_code=403, detail="无管理员权限")
+    return user
+
+
+# ── 管理后台 API ───────────────────────────────────────────
+
+@app.get("/api/admin/users")
+def admin_list_users(admin: dict = Depends(get_admin_user)):
+    """获取所有用户及其方案统计。"""
+    return db.admin_get_all_users()
+
+
+@app.get("/api/admin/plans")
+def admin_list_plans(limit: int = 100, admin: dict = Depends(get_admin_user)):
+    """获取所有方案（管理员视图）。"""
+    return db.admin_get_all_plans(limit=limit)
+
+
+@app.get("/api/admin/ai-usage")
+def admin_ai_usage_summary(days: int = 30, admin: dict = Depends(get_admin_user)):
+    """获取 AI 使用汇总统计。"""
+    return db.admin_get_ai_usage_summary(days=days)
+
+
+@app.get("/api/admin/plan/{plan_id}/ai-usage")
+def admin_plan_ai_usage(plan_id: str, admin: dict = Depends(get_admin_user)):
+    """获取指定方案的 AI 使用记录。"""
+    return db.admin_get_plan_ai_usage(plan_id)
+
+
 # ── 页面 ──────────────────────────────────────────────────
 
 @app.get("/")
@@ -113,6 +151,11 @@ def logo():
 @app.get("/share/{code}")
 def share_page(code: str):
     return FileResponse(os.path.join(BASE_DIR, "static", "share.html"))
+
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
 
 
 # ── 诊断 ──────────────────────────────────────────────────
@@ -428,7 +471,7 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Save user message to conversation history
     db.save_conversation(user["id"], "user", req.message)
 
-    result = chat_mod.extract_params(req.message, req.conversation)
+    result = chat_mod.extract_params(req.message, req.conversation, user_id=user["id"])
     extracted = result.get("extracted", {})
     sufficient = result.get("sufficient", False)
     follow_up = result.get("follow_up", "")
@@ -444,10 +487,9 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         plan_result = planner.plan(plan_input)
 
         sections = [(s["title"], s["data"]) for s in plan_result.get("sections", [])]
-        structured = structured_planner.generate_structured_plan(extracted, sections)
-
         now = datetime.now().isoformat()
         plan_id = str(uuid.uuid4())[:12]
+        structured = structured_planner.generate_structured_plan(extracted, sections, user_id=user["id"], plan_id=plan_id)
         plan_dict = {
             "id": plan_id,
             "user_id": user["id"],
@@ -540,7 +582,7 @@ def api_revise_plan(plan_id: str, req: ReviseRequest, user: dict = Depends(get_c
     }
     params = plan.get("params", {})
 
-    revised = structured_planner.revise_plan(params, current_structured, req.message)
+    revised = structured_planner.revise_plan(params, current_structured, req.message, user_id=user["id"], plan_id=plan_id)
     if not revised:
         raise HTTPException(status_code=500, detail="修改失败，请重试")
 

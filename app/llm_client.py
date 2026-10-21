@@ -73,7 +73,8 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False):
+def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False,
+             user_id: str = None, plan_id: str = None, action: str = "complete"):
     provider = config.LLM_PROVIDER.lower()
     if provider == "minimax":
         if not config.MINIMAX_API_KEY:
@@ -119,13 +120,38 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
+
+        # Record AI usage if user_id provided
+        if user_id and "usage" in data:
+            try:
+                from . import database as db
+                usage = data["usage"]
+                model_name = payload.get("model", "unknown")
+                # Estimate cost: ~0.002 per 1K tokens for qwen-turbo, ~0.008 for qwen-plus
+                cost_per_1k = 0.002 if "turbo" in model_name or "fast" in model_name else 0.008
+                total_tokens = usage.get("total_tokens", 0)
+                estimated_cost = (total_tokens / 1000.0) * cost_per_1k
+
+                db.record_ai_usage(
+                    user_id=user_id,
+                    action=action,
+                    model=model_name,
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                    plan_id=plan_id,
+                    cost=estimated_cost,
+                )
+            except Exception as e:
+                log.warning("Failed to record AI usage: %s", e)
+
         return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
         log.warning("LLM complete failed (%s): %s: %s", provider, type(e).__name__, e)
         return None
 
 
-def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False, max_retries: int = 2) -> dict | None:
+def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False, max_retries: int = 2,
+                  user_id: str = None, plan_id: str = None, action: str = "complete_json") -> dict | None:
     """调用 LLM 并强制返回 JSON 格式。失败返回 None。
 
     自适应重试：若检测到 JSON 被截断（Unterminated string），自动提升 max_tokens 重试。
@@ -176,6 +202,29 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
                 resp = client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
+
+            # Record AI usage if user_id provided
+            if user_id and "usage" in data:
+                try:
+                    from . import database as db
+                    usage = data["usage"]
+                    model_name = payload.get("model", "unknown")
+                    cost_per_1k = 0.002 if "turbo" in model_name or "fast" in model_name else 0.008
+                    total_tokens = usage.get("total_tokens", 0)
+                    estimated_cost = (total_tokens / 1000.0) * cost_per_1k
+
+                    db.record_ai_usage(
+                        user_id=user_id,
+                        action=action,
+                        model=model_name,
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                        plan_id=plan_id,
+                        cost=estimated_cost,
+                    )
+                except Exception as e:
+                    log.warning("Failed to record AI usage: %s", e)
+
             text = data["choices"][0]["message"]["content"].strip()
             text = text.lstrip("```json").rstrip("```").strip()
             return _json.loads(text)

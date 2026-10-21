@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoGather 管理后台</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f7fa;
+    color: #1a202c;
+    line-height: 1.6;
+  }
+  .header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  }
+  .header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header h1 { font-size: 24px; font-weight: 700; }
+  .header .user-info { display: flex; align-items: center; gap: 12px; }
+  .header .avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; }
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+  }
+  .stat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: transform 0.2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+  .stat-card .label { font-size: 14px; color: #718096; margin-bottom: 8px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; color: #2d3748; }
+  .stat-card .sub { font-size: 13px; color: #a0aec0; margin-top: 4px; }
+  .chart-container {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .chart-container h2 { font-size: 18px; margin-bottom: 20px; color: #2d3748; }
+  .chart-wrapper { position: relative; height: 300px; }
+  .data-table {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow-x: auto;
+  }
+  .data-table h2 { font-size: 18px; margin-bottom: 20px; color: #2d3748; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+  th { background: #f7fafc; font-weight: 600; color: #4a5568; font-size: 14px; }
+  td { font-size: 14px; color: #2d3748; }
+  tr:hover { background: #f7fafc; }
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge-primary { background: #e6fffa; color: #047857; }
+  .badge-secondary { background: #fef3c7; color: #92400e; }
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: #718096;
+  }
+  .error {
+    background: #fed7d7;
+    color: #c53030;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .tab {
+    padding: 12px 24px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-weight: 600;
+    color: #718096;
+    transition: all 0.2s;
+  }
+  .tab:hover { color: #4a5568; }
+  .tab.active { color: #667eea; border-bottom-color: #667eea; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-content">
+    <h1>📊 GoGather 管理后台</h1>
+    <div class="user-info">
+      <img id="userAvatar" class="avatar" src="" alt="avatar" style="display:none">
+      <span id="userName"></span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div id="errorBox" class="error" style="display:none"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">概览</div>
+    <div class="tab" data-tab="users">用户</div>
+    <div class="tab" data-tab="plans">方案</div>
+    <div class="tab" data-tab="ai-usage">AI 使用</div>
+  </div>
+
+  <!-- Overview Tab -->
+  <div id="overview" class="tab-content active">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">总用户数</div>
+        <div class="value" id="totalUsers">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">总方案数</div>
+        <div class="value" id="totalPlans">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">AI 调用次数（30天）</div>
+        <div class="value" id="aiCalls">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">AI Token 消耗（30天）</div>
+        <div class="value" id="aiTokens">-</div>
+        <div class="sub" id="aiCost">预估费用：-</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h2>AI 使用趋势（按模型）</h2>
+      <div class="chart-wrapper">
+        <canvas id="modelChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Tab -->
+  <div id="users" class="tab-content">
+    <div class="data-table">
+      <h2>用户列表</h2>
+      <div id="usersLoading" class="loading">加载中...</div>
+      <table id="usersTable" style="display:none">
+        <thead>
+          <tr>
+            <th>用户名</th>
+            <th>GitHub ID</th>
+            <th>方案数</th>
+            <th>AI 方案数</th>
+            <th>注册时间</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Plans Tab -->
+  <div id="plans" class="tab-content">
+    <div class="data-table">
+      <h2>方案列表</h2>
+      <div id="plansLoading" class="loading">加载中...</div>
+      <table id="plansTable" style="display:none">
+        <thead>
+          <tr>
+            <th>方案 ID</th>
+            <th>用户</th>
+            <th>摘要</th>
+            <th>创建时间</th>
+            <th>使用 AI</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="plansBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- AI Usage Tab -->
+  <div id="ai-usage" class="tab-content">
+    <div class="chart-container">
+      <h2>用户 AI 使用排名（30天）</h2>
+      <div class="chart-wrapper">
+        <canvas id="userUsageChart"></canvas>
+      </div>
+    </div>
+
+    <div class="data-table">
+      <h2>AI 调用详情</h2>
+      <div id="usageLoading" class="loading">加载中...</div>
+      <table id="usageTable" style="display:none">
+        <thead>
+          <tr>
+            <th>用户</th>
+            <th>调用次数</th>
+            <th>Token 消耗</th>
+          </tr>
+        </thead>
+        <tbody id="usageBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = '';
+let token = '';
+let username = '';
+
+// Check authentication
+function checkAuth() {
+  const params = new URLSearchParams(window.location.search);
+  token = params.get('token') || localStorage.getItem('admin_token');
+  username = params.get('username') || localStorage.getItem('admin_username');
+
+  if (!token || !username) {
+    window.location.href = '/?redirect=admin';
+    return false;
+  }
+
+  // Check if user is admin
+  if (username !== 'mikelgh') {
+    showError('无管理员权限：仅 mikelgh 可访问管理后台');
+    return false;
+  }
+
+  localStorage.setItem('admin_token', token);
+  localStorage.setItem('admin_username', username);
+
+  document.getElementById('userName').textContent = username;
+  return true;
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+async function apiGet(path) {
+  const resp = await fetch(API_BASE + path, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!resp.ok) {
+    throw new Error(`API error: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Load overview data
+async function loadOverview() {
+  try {
+    const [users, plans, usage] = await Promise.all([
+      apiGet('/api/admin/users'),
+      apiGet('/api/admin/plans?limit=1000'),
+      apiGet('/api/admin/ai-usage?days=30')
+    ]);
+
+    document.getElementById('totalUsers').textContent = users.length;
+    document.getElementById('totalPlans').textContent = plans.length;
+    document.getElementById('aiCalls').textContent = usage.total_calls.toLocaleString();
+    document.getElementById('aiTokens').textContent = usage.total_tokens.toLocaleString();
+    document.getElementById('aiCost').textContent = `预估费用：¥${usage.total_cost.toFixed(2)}`;
+
+    // Model chart
+    if (usage.by_model.length > 0) {
+      const ctx = document.getElementById('modelChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: usage.by_model.map(m => m.model),
+          datasets: [{
+            data: usage.by_model.map(m => m.tokens),
+            backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right' }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    showError('加载概览数据失败：' + e.message);
+  }
+}
+
+// Load users data
+async function loadUsers() {
+  try {
+    const users = await apiGet('/api/admin/users');
+    const tbody = document.getElementById('usersBody');
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>${u.username}</td>
+        <td>${u.github_id || '-'}</td>
+        <td>${u.plan_count}</td>
+        <td>${u.ai_plan_count}</td>
+        <td>${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
+      </tr>
+    `).join('');
+    document.getElementById('usersLoading').style.display = 'none';
+    document.getElementById('usersTable').style.display = 'table';
+  } catch (e) {
+    showError('加载用户数据失败：' + e.message);
+  }
+}
+
+// Load plans data
+async function loadPlans() {
+  try {
+    const plans = await apiGet('/api/admin/plans?limit=100');
+    const tbody = document.getElementById('plansBody');
+    tbody.innerHTML = plans.map(p => `
+      <tr>
+        <td><code>${p.id}</code></td>
+        <td>${p.username || p.user_id}</td>
+        <td>${(p.summary || '').substring(0, 50)}${(p.summary || '').length > 50 ? '...' : ''}</td>
+        <td>${new Date(p.created_at).toLocaleDateString('zh-CN')}</td>
+        <td>${p.used_llm ? '<span class="badge badge-primary">是</span>' : '<span class="badge badge-secondary">否</span>'}</td>
+        <td><button onclick="viewPlanUsage('${p.id}')" style="padding:4px 12px;border:1px solid #667eea;background:white;color:#667eea;border-radius:6px;cursor:pointer">AI 详情</button></td>
+      </tr>
+    `).join('');
+    document.getElementById('plansLoading').style.display = 'none';
+    document.getElementById('plansTable').style.display = 'table';
+  } catch (e) {
+    showError('加载方案数据失败：' + e.message);
+  }
+}
+
+async function viewPlanUsage(planId) {
+  try {
+    const usage = await apiGet(`/api/admin/plan/${planId}/ai-usage`);
+    alert(`方案 ${planId} AI 使用详情：\n\n` +
+          `调用次数：${usage.length}\n` +
+          `总 Token：${usage.reduce((sum, u) => sum + u.total_tokens, 0).toLocaleString()}\n` +
+          `总费用：¥${usage.reduce((sum, u) => sum + u.cost, 0).toFixed(4)}`);
+  } catch (e) {
+    showError('加载方案 AI 使用详情失败：' + e.message);
+  }
+}
+
+// Load AI usage data
+async function loadAIUsage() {
+  try {
+    const usage = await apiGet('/api/admin/ai-usage?days=30');
+    const tbody = document.getElementById('usageBody');
+    tbody.innerHTML = usage.by_user.map(u => `
+      <tr>
+        <td>${u.username}</td>
+        <td>${u.calls}</td>
+        <td>${u.tokens ? u.tokens.toLocaleString() : '0'}</td>
+      </tr>
+    `).join('');
+    document.getElementById('usageLoading').style.display = 'none';
+    document.getElementById('usageTable').style.display = 'table';
+
+    // User usage chart
+    if (usage.by_user.length > 0) {
+      const ctx = document.getElementById('userUsageChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: usage.by_user.map(u => u.username),
+          datasets: [{
+            label: 'Token 消耗',
+            data: usage.by_user.map(u => u.tokens || 0),
+            backgroundColor: '#667eea'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    showError('加载 AI 使用数据失败：' + e.message);
+  }
+}
+
+// Initialize
+if (checkAuth()) {
+  loadOverview();
+  loadUsers();
+  loadPlans();
+  loadAIUsage();
+}
+</script>
+</body>
+</html>

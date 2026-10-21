@@ -116,6 +116,26 @@ def init_db():
     ''')
     conn.execute("CREATE INDEX IF NOT EXISTS idx_revisions_plan ON plan_revisions(plan_id)")
 
+    # migration: add ai_usage table for tracking AI API calls
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            plan_id TEXT,
+            action TEXT NOT NULL,
+            model TEXT NOT NULL,
+            prompt_tokens INTEGER DEFAULT 0,
+            completion_tokens INTEGER DEFAULT 0,
+            total_tokens INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0.0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (plan_id) REFERENCES plans(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_user ON ai_usage(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_plan ON ai_usage(plan_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage(created_at)")
 
     conn.commit()
     conn.close()
@@ -530,3 +550,130 @@ def rollback_plan(plan_id: str, revision_id: int, user_id: str | None = None) ->
     
     save_plan(plan)
     return plan
+
+
+# ── AI Usage Tracking ─────────────────────────────────────
+
+def record_ai_usage(user_id: str, action: str, model: str, prompt_tokens: int,
+                    completion_tokens: int, plan_id: str | None = None, cost: float = 0.0) -> int:
+    """记录 AI API 调用。返回 usage id。"""
+    from datetime import datetime
+    conn = _get_conn()
+    total = prompt_tokens + completion_tokens
+    cursor = conn.execute(
+        """INSERT INTO ai_usage (user_id, plan_id, action, model, prompt_tokens,
+           completion_tokens, total_tokens, cost, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, plan_id, action, model, prompt_tokens, completion_tokens, total, cost,
+         datetime.now().isoformat()),
+    )
+    conn.commit()
+    usage_id = cursor.lastrowid
+    conn.close()
+    return usage_id
+
+
+def get_user_ai_usage(user_id: str, days: int = 30) -> list[dict]:
+    """获取用户最近 N 天的 AI 使用记录。"""
+    conn = _get_conn()
+    rows = conn.execute(
+        """SELECT * FROM ai_usage WHERE user_id = ?
+           AND created_at >= datetime('now', ? || ' days')
+           ORDER BY created_at DESC""",
+        (user_id, f"-{days}"),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Admin Queries ─────────────────────────────────────────
+
+def admin_get_all_users() -> list[dict]:
+    """获取所有用户及其方案统计。"""
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT u.id, u.username, u.github_id, u.avatar_url, u.created_at,
+               COUNT(p.id) as plan_count,
+               COALESCE(SUM(p.used_llm), 0) as ai_plan_count
+        FROM users u
+        LEFT JOIN plans p ON u.id = p.user_id
+        WHERE u.id != 'legacy'
+        GROUP BY u.id
+        ORDER BY u.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def admin_get_all_plans(limit: int = 100) -> list[dict]:
+    """获取所有方案（管理员视图）。"""
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT p.id, p.user_id, u.username, p.created_at, p.updated_at,
+               p.summary, p.used_llm, p.phase,
+               LENGTH(p.conversation) as conv_size
+        FROM plans p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.user_id != 'legacy'
+        ORDER BY p.created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [_row_to_dict(r) for r in rows]
+
+
+def admin_get_ai_usage_summary(days: int = 30) -> dict:
+    """获取 AI 使用汇总统计。"""
+    conn = _get_conn()
+
+    total_calls = conn.execute(
+        "SELECT COUNT(*) FROM ai_usage WHERE created_at >= datetime('now', ? || ' days')",
+        (f"-{days}",)
+    ).fetchone()[0]
+
+    total_tokens = conn.execute(
+        "SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage WHERE created_at >= datetime('now', ? || ' days')",
+        (f"-{days}",)
+    ).fetchone()[0]
+
+    total_cost = conn.execute(
+        "SELECT COALESCE(SUM(cost), 0.0) FROM ai_usage WHERE created_at >= datetime('now', ? || ' days')",
+        (f"-{days}",)
+    ).fetchone()[0]
+
+    by_model = conn.execute(
+        """SELECT model, COUNT(*) as calls, SUM(total_tokens) as tokens
+           FROM ai_usage WHERE created_at >= datetime('now', ? || ' days')
+           GROUP BY model""",
+        (f"-{days}",)
+    ).fetchall()
+
+    by_user = conn.execute(
+        """SELECT u.username, COUNT(a.id) as calls, SUM(a.total_tokens) as tokens
+           FROM ai_usage a
+           LEFT JOIN users u ON a.user_id = u.id
+           WHERE a.created_at >= datetime('now', ? || ' days')
+           GROUP BY a.user_id
+           ORDER BY calls DESC""",
+        (f"-{days}",)
+    ).fetchall()
+
+    conn.close()
+    return {
+        "total_calls": total_calls,
+        "total_tokens": total_tokens,
+        "total_cost": round(total_cost, 4),
+        "by_model": [dict(r) for r in by_model],
+        "by_user": [dict(r) for r in by_user],
+    }
+
+
+def admin_get_plan_ai_usage(plan_id: str) -> list[dict]:
+    """获取指定方案的所有 AI 调用记录。"""
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ai_usage WHERE plan_id = ? ORDER BY created_at DESC",
+        (plan_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
