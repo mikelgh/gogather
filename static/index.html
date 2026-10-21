@@ -483,6 +483,16 @@ body {
   background: var(--primary-dark);
 }
 
+.pref-tag-btn.active {
+  background: var(--primary-bg);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.pref-tag-btn.active:hover {
+  background: rgba(99,102,241,0.12);
+}
+
 /* ── Revision Input ──────────────────────────────────────── */
 .revision-area {
   margin-top: 16px;
@@ -1830,6 +1840,17 @@ body {
           <button class="quick-action budget-tier-btn active" data-tier="舒适型" onclick="selectBudgetTier('舒适型')">💎 舒适型</button>
           <button class="quick-action budget-tier-btn" data-tier="豪华型" onclick="selectBudgetTier('豪华型')">👑 豪华型</button>
         </div>
+        <div class="quick-actions" id="preferenceTags">
+          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">偏好：</span>
+          <button class="quick-action pref-tag-btn" data-pref="美食" onclick="togglePreference('美食')">🍜 美食</button>
+          <button class="quick-action pref-tag-btn" data-pref="风景" onclick="togglePreference('风景')">🏞️ 风景</button>
+          <button class="quick-action pref-tag-btn" data-pref="休闲" onclick="togglePreference('休闲')">☕ 休闲</button>
+          <button class="quick-action pref-tag-btn" data-pref="文化" onclick="togglePreference('文化')">🏛️ 文化</button>
+          <button class="quick-action pref-tag-btn" data-pref="户外" onclick="togglePreference('户外')">🏕️ 户外</button>
+          <button class="quick-action pref-tag-btn" data-pref="亲子" onclick="togglePreference('亲子')">👨‍👩‍👧 亲子</button>
+          <button class="quick-action pref-tag-btn" data-pref="夜生活" onclick="togglePreference('夜生活')">🌃 夜生活</button>
+          <button class="quick-action pref-tag-btn" data-pref="购物" onclick="togglePreference('购物')">🛍️ 购物</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1974,6 +1995,7 @@ const state = {
   token: localStorage.getItem('juxing_token'),
   user: JSON.parse(localStorage.getItem('juxing_user') || 'null'),
   budgetTier: '舒适型',
+  preferences: [],
 };
 
 // ── Auth ──────────────────────────────────────────────────
@@ -2310,6 +2332,8 @@ function addMessage(role, content, params = null) {
       city: '城市', check_in: '入住', check_out: '退房',
       origin: '出发', group_size: '人数', vibe: '偏好',
       budget: '预算', budget_tier: '档次', activity_type: '类型',
+      children_count: '儿童', elderly_count: '老人', accessibility: '无障碍',
+      preferences: '兴趣',
     };
     const chips = Object.entries(params)
       .filter(([k, v]) => v && v !== 'null' && v !== null)
@@ -2385,6 +2409,18 @@ function selectBudgetTier(tier) {
   });
 }
 
+function togglePreference(pref) {
+  const idx = state.preferences.indexOf(pref);
+  if (idx >= 0) {
+    state.preferences.splice(idx, 1);
+  } else {
+    state.preferences.push(pref);
+  }
+  document.querySelectorAll('.pref-tag-btn').forEach(btn => {
+    btn.classList.toggle('active', state.preferences.includes(btn.dataset.pref));
+  });
+}
+
 async function sendMessage() {
   if (state.isSending) return;
   const input = document.getElementById('chatInput');
@@ -2427,6 +2463,7 @@ async function sendMessage() {
         conversation: state.conversation.slice(-6),
         plan_id: state.planId,
         budget_tier: state.budgetTier,
+        preferences: state.preferences,
       }),
     });
     

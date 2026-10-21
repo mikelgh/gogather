@@ -106,6 +106,11 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
     origin = params.get("origin", "")
     vibe = params.get("vibe", "")
     budget_tier = params.get("budget_tier", "舒适型")
+    children_count = params.get("children_count")
+    children_ages = params.get("children_ages")
+    elderly_count = params.get("elderly_count")
+    accessibility = params.get("accessibility")
+    preferences = params.get("preferences", [])
 
     # 构建飞猪数据摘要（结构化数据含价格+链接，放宽截断以保留完整价格信息）
     flyai_summary = []
@@ -122,6 +127,20 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
     }
     budget_hint = budget_guidance.get(budget_tier, budget_guidance["舒适型"])
 
+    # 团体构成信息
+    group_composition = []
+    if children_count:
+        age_info = f"（{children_ages}）" if children_ages else ""
+        group_composition.append(f"儿童：{children_count}人{age_info}")
+    if elderly_count:
+        group_composition.append(f"老人：{elderly_count}人")
+    if accessibility:
+        group_composition.append(f"无障碍需求：{accessibility}")
+    composition_text = "；".join(group_composition) if group_composition else "无特殊需求"
+
+    # 偏好标签
+    preferences_text = "、".join(preferences) if preferences else "无特定偏好"
+
     # 构建用户场景描述
     scenario = f"""
 城市：{city}
@@ -130,6 +149,8 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 人数：{group_size}人
 偏好：{vibe}
 预算档次：{budget_tier}（{budget_hint}）
+团体构成：{composition_text}
+兴趣偏好：{preferences_text}
 """
 
     user_prompt = f"""
@@ -146,6 +167,11 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 4. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、去程交通 = 去程单价×{group_size}人、返程交通 = 返程单价×{group_size}人（若两段都有价格）、门票 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
 5. budget_per_person = 总预算 ÷ {group_size}，必须给出具体数字
 6. **预算档次指导**：{budget_hint}。在飞猪结果中优先选择符合该档次的选项
+7. **团体构成适配**：
+   - 若有儿童（{children_count or '无'}），优先推荐亲子友好的景点和活动（如主题乐园、动物园、博物馆），避免高强度徒步
+   - 若有老人（{elderly_count or '无'}），选择交通便利、步行距离短的景点，避免爬山等高强度活动
+   - 若有无障碍需求（{accessibility or '无'}），确保推荐的酒店和景点有无障碍设施
+8. **兴趣偏好匹配**：优先推荐符合用户兴趣标签（{preferences_text}）的活动和餐厅
 请输出严格的 JSON 格式方案。
 """
 

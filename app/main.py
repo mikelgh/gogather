@@ -32,6 +32,11 @@ class PlanRequest(BaseModel):
     group_size: str = ""
     vibe: str = ""
     budget_tier: str = "舒适型"
+    children_count: str | None = None
+    children_ages: str | None = None
+    elderly_count: str | None = None
+    accessibility: str | None = None
+    preferences: list[str] = Field(default_factory=list)
 
 
 class SearchRequest(BaseModel):
@@ -44,6 +49,7 @@ class ChatRequest(BaseModel):
     plan_id: str | None = None
     conversation: list[dict] = Field(default_factory=list)
     budget_tier: str = "舒适型"
+    preferences: list[str] = Field(default_factory=list)
 
 
 class TaskUpdateRequest(BaseModel):
@@ -267,6 +273,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
 
     if not extracted.get("budget_tier"):
         extracted["budget_tier"] = req.budget_tier
+    if not extracted.get("preferences") and req.preferences:
+        extracted["preferences"] = req.preferences
 
     if sufficient:
         from . import structured_planner
