@@ -1870,6 +1870,7 @@ async function initAuth() {
     showUserMenu();
     await loadConversations();
     await restorePlan();
+    await loadPlanList();
   } else {
     document.getElementById('authModal').classList.remove('hidden');
   }
@@ -2160,6 +2161,7 @@ function startOver() {
   document.getElementById('shareResult').style.display = 'none';
   switchView('chat');
   document.getElementById('chatInput').focus();
+  loadPlanList();
 }
 
 // ── Chat ──────────────────────────────────────────────────
@@ -2277,6 +2279,7 @@ async function sendMessage() {
       addMessage('assistant', '方案已生成！点击下方查看详细内容。');
       showToast('方案已生成', 'success');
       showPlan(data.plan, data.plan_id, data.structured);
+      loadPlanList();
     }
   } catch (err) {
     hideTypingIndicator();
