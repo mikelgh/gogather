@@ -223,18 +223,28 @@ def build_sections(inp: dict) -> tuple:
         q_food += f" 偏好{vibe}"
     _call("🍜 美食聚餐", flyai.ai_search(q_food))
 
-    # 4) 外地出行 → 交通：结构化机票查询（带真实票价）
+    # 4) 外地出行 → 交通：结构化机票查询（去程+返程，带真实票价）
     if origin and origin != city:
-        flight_opts = {"origin": origin, "destination": city}
+        # 去程
+        outbound_opts = {"origin": origin, "destination": city}
         if check_in:
-            flight_opts["dep_date"] = check_in
-        flight_r = flyai.search_flight(**flight_opts)
-        _call("✈️ 交通（含实时票价）", flight_r, limit=6)
-        if not _fmt(flight_r):
+            outbound_opts["dep_date"] = check_in
+        outbound_r = flyai.search_flight(**outbound_opts)
+        _call(f"✈️ 去程（{origin}→{city}，含实时票价）", outbound_r, limit=6)
+        if not _fmt(outbound_r):
             q_f = f"{origin} 到 {city} 机票/高铁"
             if check_in:
                 q_f += f" {check_in}出发"
-            _call("✈️ 交通（备选）", flyai.ai_search(q_f))
+            _call("✈️ 去程（备选）", flyai.ai_search(q_f))
+
+        # 返程
+        if check_out:
+            return_opts = {"origin": city, "destination": origin, "dep_date": check_out}
+            return_r = flyai.search_flight(**return_opts)
+            _call(f"✈️ 返程（{city}→{origin}，含实时票价）", return_r, limit=6)
+            if not _fmt(return_r):
+                q_r = f"{city} 到 {origin} 机票/高铁 {check_out}出发"
+                _call("✈️ 返程（备选）", flyai.ai_search(q_r))
 
     return sections, warnings
 
