@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
 :root {
   --primary: #6366f1;
@@ -601,6 +602,36 @@ async function fetchRestaurantRec(index, btn) {
   }
 }
 
+async function renderShareMap() {
+  const container = document.getElementById('shareMap');
+  if (!container) return;
+  try {
+    const resp = await fetch(`/api/share/${code}/map`);
+    if (!resp.ok) { container.style.display = 'none'; return; }
+    const data = await resp.json();
+    const points = (data.timeline || []).filter(t => t.lat && t.lng);
+    if (points.length === 0) { container.style.display = 'none'; return; }
+    const map = L.map('shareMap').setView([points[0].lat, points[0].lng], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 18,
+    }).addTo(map);
+    const dayColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+    const markers = points.map(item => {
+      const dayMatch = (item.time_range || '').match(/Day\s*(\d+)/i);
+      const dayNum = dayMatch ? parseInt(dayMatch[1]) : 1;
+      const color = dayColors[(dayNum - 1) % dayColors.length];
+      const marker = L.circleMarker([item.lat, item.lng], {
+        radius: 10, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8,
+      }).addTo(map);
+      marker.bindPopup(`<b>${item.title}</b><br>${item.time_range || ''}<br>${item.location || ''}`);
+      return marker;
+    });
+    if (markers.length > 0) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.1));
+  } catch (err) {
+    console.error('Map render failed:', err);
+  }
+}
+
 function renderPlan(plan) {
   window.currentPlan = plan;
   const city = plan.params?.city || '';
@@ -623,13 +654,14 @@ function renderPlan(plan) {
     html += `
       <div class="section">
         <div class="section-title">行程安排</div>
+        <div id="shareMap" style="height: 350px; margin-bottom: 16px; border-radius: 12px; overflow: hidden;"></div>
         ${timeline.map((item, i) => `
           <div class="timeline-item">
             <div class="timeline-time">${item.time_range || ''}</div>
             <div class="timeline-content">
               <h4>${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
               ${item.notes ? `<p>${item.notes}</p>` : ''}
-              ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
+              ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener"> 飞猪预订/验价</a>` : ''}
               ${renderRestaurantRec(item, i)}
             </div>
           </div>
@@ -699,9 +731,12 @@ function renderPlan(plan) {
   `;
 
   document.getElementById('app').innerHTML = html;
+  // 延迟渲染地图，确保 DOM 已更新
+  setTimeout(renderShareMap, 100);
 }
 
 loadSharedPlan();
 </script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
 </html>

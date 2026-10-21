@@ -783,6 +783,38 @@ def api_share_recommend_restaurants(code: str, req: RestaurantRecommendRequest):
     return _recommend_restaurants(plan, req.item_index)
 
 
+@app.get("/api/plan/{plan_id}/map")
+def api_plan_map(plan_id: str, user: dict = Depends(get_current_user)):
+    """返回带地理坐标的时间线，用于地图渲染。"""
+    from . import geocode as geocode_mod
+
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    timeline = plan.get("timeline", [])
+    city = (plan.get("params") or {}).get("city", "")
+    return {
+        "city": city,
+        "timeline": geocode_mod.geocode_timeline(timeline, city),
+    }
+
+
+@app.get("/api/share/{code}/map")
+def api_share_map(code: str):
+    """分享页地图数据（无需登录）。"""
+    from . import geocode as geocode_mod
+
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        raise HTTPException(status_code=404, detail="分享码无效")
+    timeline = plan.get("timeline", [])
+    city = (plan.get("params") or {}).get("city", "")
+    return {
+        "city": city,
+        "timeline": geocode_mod.geocode_timeline(timeline, city),
+    }
+
+
 @app.get("/api/plans")
 def api_list_plans(user: dict = Depends(get_current_user)):
     return db.list_plans(user["id"])
