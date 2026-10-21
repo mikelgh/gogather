@@ -476,7 +476,14 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Save user message to conversation history
     db.save_conversation(user["id"], "user", req.message)
 
-    result = chat_mod.extract_params(req.message, req.conversation, user_id=user["id"])
+    # 传递 UI 已选择的参数给 LLM，避免重复追问
+    ui_selected = {
+        "budget_tier": req.budget_tier if req.budget_tier != "舒适型" else None,
+        "transport_mode": req.transport_mode if req.transport_mode != "auto" else None,
+        "preferences": req.preferences if req.preferences else None,
+    }
+    result = chat_mod.extract_params(req.message, req.conversation, user_id=user["id"],
+                                     ui_selected=ui_selected)
     extracted = result.get("extracted", {})
     sufficient = result.get("sufficient", False)
     follow_up = result.get("follow_up", "")

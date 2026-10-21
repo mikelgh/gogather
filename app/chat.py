@@ -59,8 +59,13 @@ def _clean_json(text: str) -> str:
     return text.strip()
 
 
-def extract_params(user_message: str, conversation: list[dict] | None = None, user_id: str = None) -> dict:
-    """从用户消息中提取参数。返回 {extracted, sufficient, follow_up}。"""
+def extract_params(user_message: str, conversation: list[dict] | None = None, user_id: str = None,
+                   ui_selected: dict | None = None) -> dict:
+    """从用户消息中提取参数。返回 {extracted, sufficient, follow_up}。
+    
+    Args:
+        ui_selected: UI 已选择的参数 {budget_tier, transport_mode, preferences}
+    """
     system = _build_extract_system()
 
     history = ""
@@ -71,8 +76,22 @@ def extract_params(user_message: str, conversation: list[dict] | None = None, us
             msgs.append(f"{role}：{m.get('content', '')}")
         history = "\n".join(msgs) + "\n"
 
+    # 添加 UI 已选择的参数信息
+    ui_context = ""
+    if ui_selected:
+        ui_parts = []
+        if ui_selected.get("budget_tier"):
+            ui_parts.append(f"预算档次：{ui_selected['budget_tier']}")
+        if ui_selected.get("transport_mode") and ui_selected["transport_mode"] != "auto":
+            transport_labels = {"train": "高铁/动车", "flight": "飞机"}
+            ui_parts.append(f"交通方式：{transport_labels.get(ui_selected['transport_mode'], ui_selected['transport_mode'])}")
+        if ui_selected.get("preferences"):
+            ui_parts.append(f"偏好：{', '.join(ui_selected['preferences'])}")
+        if ui_parts:
+            ui_context = f"\n\n【用户已在界面选择】{'；'.join(ui_parts)}。追问时不要重复询问这些已选项目。\n"
+
     user_prompt = (
-        f"{history}用户最新消息：{user_message}\n\n"
+        f"{history}用户最新消息：{user_message}{ui_context}"
         "请提取参数并判断是否足够生成方案。"
     )
 
