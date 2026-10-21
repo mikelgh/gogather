@@ -6,8 +6,8 @@ import secrets
 from datetime import datetime
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel, Field
 import httpx
 
@@ -306,7 +306,7 @@ async def github_callback(code: str, state: str):
 # ── Alipay OAuth ──────────────────────────────────────────
 
 @app.get("/api/auth/alipay")
-def alipay_login():
+def alipay_login(request: Request):
     if not config.ALIPAY_APP_ID:
         raise HTTPException(status_code=500, detail="支付宝 OAuth 未配置")
     state = secrets.token_urlsafe(24)
@@ -315,6 +315,32 @@ def alipay_login():
     url = alipay_oauth.build_auth_url(
         config.ALIPAY_APP_ID, config.ALIPAY_CALLBACK_URL, state
     )
+    ua = request.headers.get("user-agent", "").lower()
+    is_mobile = any(k in ua for k in ("mobile", "android", "iphone", "ipad"))
+    if is_mobile:
+        import qrcode, io, base64
+        buf = io.BytesIO()
+        qrcode.make(url, box_size=8, border=2).save(buf, format="PNG")
+        qr_b64 = base64.b64encode(buf.getvalue()).decode()
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>支付宝登录 - GoGather</title>
+<style>
+body{{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+background:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}}
+.card{{background:#fff;border-radius:16px;padding:32px 24px;text-align:center;
+box-shadow:0 2px 12px rgba(0,0,0,.08);max-width:340px;width:90%}}
+h2{{margin:0 0 8px;font-size:18px;color:#1a1a1a}}
+p{{margin:0 0 20px;font-size:14px;color:#888}}
+img{{width:220px;height:220px;border-radius:8px}}
+.tip{{margin-top:16px;font-size:13px;color:#1677ff}}
+</style></head><body>
+<div class="card">
+<h2>支付宝扫码登录</h2>
+<p>请打开支付宝扫描二维码</p>
+<img src="data:image/png;base64,{qr_b64}" alt="支付宝登录二维码">
+<div class="tip">扫码后在支付宝内完成授权</div>
+</div></body></html>""")
     return RedirectResponse(url)
 
 
@@ -494,7 +520,9 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     follow_up = result.get("follow_up", "")
 
     if not extracted.get("budget_tier"):
-        extracted["budget_tier"] = req.budget_tier
+        # 抽取漏掉时，先按消息原文关键词兜底，再用 UI 选择值
+        tier_match = re.search(r"(经济型|舒适型|豪华型)", req.message)
+        extracted["budget_tier"] = tier_match.group(1) if tier_match else req.budget_tier
     if not extracted.get("transport_mode") or extracted.get("transport_mode") == "auto":
         extracted["transport_mode"] = req.transport_mode
     if not extracted.get("preferences") and req.preferences:
