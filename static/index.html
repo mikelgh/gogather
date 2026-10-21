@@ -706,6 +706,17 @@ body {
   vertical-align: middle;
 }
 
+.timeline-price-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.timeline-price-link:hover {
+  background: rgba(99,102,241,0.15);
+  text-decoration: underline;
+}
+
 .booking-link {
   display: inline-flex;
   align-items: center;
@@ -2595,21 +2606,30 @@ function renderTimeline(structured) {
   const timeline = structured.timeline || [];
   
   if (timeline.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🕐</div><div class="empty-state-text">暂无时间线数据</div></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"></div><div class="empty-state-text">暂无时间线数据</div></div>';
     return;
   }
   
-  container.innerHTML = timeline.map((item, i) => `
+  container.innerHTML = timeline.map((item, i) => {
+    const priceText = item.price || '';
+    const isPlaceholder = priceText.includes('点击预订') || priceText.includes('实时价格');
+    const priceHtml = priceText ? 
+      (isPlaceholder && item.booking_link ? 
+        `<a class="timeline-price timeline-price-link" href="${item.booking_link}" target="_blank" rel="noopener">${priceText}</a>` : 
+        `<span class="timeline-price">${priceText}</span>`) : 
+      '';
+    
+    return `
     <div class="timeline-item" style="animation: fadeInUp 0.3s ease ${i * 0.05}s both;">
       <div class="timeline-time">${item.time_range || ''}</div>
       <div class="timeline-content">
-        <h4>${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
+        <h4>${item.title || ''}${priceHtml}</h4>
         <p>${item.notes || ''}</p>
         ${item.location ? `<div class="location">${item.location}</div>` : ''}
         ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
       </div>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 function renderBudget(structured) {
