@@ -2660,8 +2660,12 @@ function autoResize(el) {
 }
 
 function quickInput(text) {
-  document.getElementById('chatInput').value = text;
-  sendMessage();
+  const input = document.getElementById('chatInput');
+  input.value = text;
+  input.focus();
+  // Auto-resize textarea
+  input.style.height = 'auto';
+  input.style.height = input.scrollHeight + 'px';
 }
 
 function selectBudgetTier(tier) {
@@ -2687,7 +2691,11 @@ async function sendMessage() {
   if (state.isSending) return;
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
-  if (!message) return;
+  if (!message) {
+    showToast('请输入内容', 'error');
+    input.focus();
+    return;
+  }
   
   input.value = '';
   input.style.height = 'auto';
@@ -2930,12 +2938,14 @@ function toggleTaskStatus(el, taskId) {
 function renderExecution() {
   if (!state.plan) return;
   
+  // Render tasks directly into executionContent
+  const structured = state.structured || {};
+  renderTasks(structured);
+  
   const container = document.getElementById('executionContent');
   const tasksContent = document.getElementById('tasksContent');
   if (tasksContent && tasksContent.innerHTML.trim()) {
     container.innerHTML = tasksContent.innerHTML;
-  } else {
-    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">暂无待办事项</div></div>';
   }
   
   renderNextActions();
@@ -3102,7 +3112,7 @@ async function showRevisionHistory() {
       </div>
     `).join('');
   } catch (e) {
-    list.innerHTML = '<div class="revision-empty">加载失败</div>';
+    list.innerHTML = '<div class="revision-empty"><div>加载失败</div><button class="revision-rollback-btn" style="margin-top:12px;" onclick="showRevisionHistory()">重试</button></div>';
   }
 }
 
