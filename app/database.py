@@ -72,6 +72,14 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github ON users(github_id)")
 
+    # migration: add alipay_id and taobao_id columns for OAuth
+    if "alipay_id" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN alipay_id TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN taobao_id TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_alipay ON users(alipay_id)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_taobao ON users(taobao_id)")
+
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_share ON plans(share_code)")
 
@@ -320,3 +328,85 @@ def clear_conversations(user_id: str) -> None:
     conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
+
+
+def get_user_by_alipay_id(alipay_id: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM users WHERE alipay_id = ?", (alipay_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+
+def get_user_by_taobao_id(taobao_id: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM users WHERE taobao_id = ?", (taobao_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+
+def create_alipay_user(user_id: str, username: str, alipay_id: str, avatar_url: str = "") -> dict | None:
+    from datetime import datetime
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at, alipay_id, avatar_url) "
+            "VALUES (?, ?, '', ?, ?, ?)",
+            (user_id, username, datetime.now().isoformat(), alipay_id, avatar_url),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None
+    conn.close()
+    return {"id": user_id, "username": username, "avatar_url": avatar_url}
+
+
+def create_taobao_user(user_id: str, username: str, taobao_id: str, avatar_url: str = "") -> dict | None:
+    from datetime import datetime
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at, taobao_id, avatar_url) "
+            "VALUES (?, ?, '', ?, ?, ?)",
+            (user_id, username, datetime.now().isoformat(), taobao_id, avatar_url),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None
+    conn.close()
+    return {"id": user_id, "username": username, "avatar_url": avatar_url}
+
+
+def link_alipay_account(user_id: str, alipay_id: str, avatar_url: str = "") -> bool:
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET alipay_id = ?, avatar_url = ? WHERE id = ?",
+            (alipay_id, avatar_url, user_id),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def link_taobao_account(user_id: str, taobao_id: str, avatar_url: str = "") -> bool:
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET taobao_id = ?, avatar_url = ? WHERE id = ?",
+            (taobao_id, avatar_url, user_id),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()

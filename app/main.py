@@ -250,6 +250,168 @@ async def github_callback(code: str, state: str):
     return RedirectResponse(frontend_url)
 
 
+# ── Alipay OAuth ──────────────────────────────────────────
+
+@app.get("/api/auth/alipay")
+def alipay_login():
+    if not config.ALIPAY_APP_ID:
+        raise HTTPException(status_code=500, detail="支付宝 OAuth 未配置")
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = datetime.now().timestamp()
+    from . import alipay_oauth
+    url = alipay_oauth.build_auth_url(
+        config.ALIPAY_APP_ID, config.ALIPAY_CALLBACK_URL, state
+    )
+    return RedirectResponse(url)
+
+
+@app.get("/api/auth/alipay/callback")
+async def alipay_callback(auth_code: str = "", code: str = "", state: str = ""):
+    """Alipay callback: auth_code or code param depending on API version."""
+    auth_code = auth_code or code
+    if state not in _oauth_states:
+        raise HTTPException(status_code=400, detail="无效的 state 参数")
+    _oauth_states.pop(state)
+
+    from . import alipay_oauth
+    import httpx as _httpx
+
+    # Exchange auth_code for access_token
+    token_params = alipay_oauth.build_token_params(
+        config.ALIPAY_APP_ID, auth_code, config.ALIPAY_PRIVATE_KEY
+    )
+    async with _httpx.AsyncClient(timeout=30) as client:
+        token_resp = await client.get(
+            "https://openapi.alipay.com/gateway.do",
+            params=token_params,
+        )
+        token_data = token_resp.json()
+
+    alipay_response = token_data.get("alipay_system_oauth_token_response", {})
+    access_token = alipay_response.get("access_token")
+    alipay_user_id = alipay_response.get("user_id")
+    if not access_token:
+        error_resp = token_data.get("error_response", {})
+        raise HTTPException(
+            status_code=400,
+            detail=f"支付宝授权失败: {error_resp.get('sub_msg', '未知错误')}"
+        )
+
+    # Get user info
+    userinfo_params = alipay_oauth.build_userinfo_params(
+        config.ALIPAY_APP_ID, access_token, config.ALIPAY_PRIVATE_KEY
+    )
+    async with _httpx.AsyncClient(timeout=30) as client:
+        info_resp = await client.get(
+            "https://openapi.alipay.com/gateway.do",
+            params=userinfo_params,
+        )
+        info_data = info_resp.json()
+
+    user_info = info_data.get("alipay_user_info_share_response", {})
+    alipay_user_id = user_info.get("user_id") or alipay_user_id
+    nick_name = user_info.get("nick_name") or user_info.get("nick") or f"alipay_{alipay_user_id[:6]}"
+    avatar_url = user_info.get("avatar", "")
+
+    # Find or create user
+    existing = db.get_user_by_alipay_id(alipay_user_id)
+    if existing:
+        token = auth.create_access_token(existing["id"], existing["username"])
+        return RedirectResponse(f"/?token={token}&username={existing['username']}")
+
+    existing_by_name = db.get_user_by_username(nick_name)
+    if existing_by_name:
+        db.link_alipay_account(existing_by_name["id"], alipay_user_id, avatar_url)
+        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
+        return RedirectResponse(f"/?token={token}&username={existing_by_name['username']}")
+
+    user_id = str(uuid.uuid4())[:12]
+    new_user = db.create_alipay_user(user_id, nick_name, alipay_user_id, avatar_url)
+    if not new_user:
+        raise HTTPException(status_code=500, detail="创建用户失败")
+
+    token = auth.create_access_token(new_user["id"], new_user["username"])
+    return RedirectResponse(f"/?token={token}&username={new_user['username']}")
+
+
+# ── Taobao OAuth ──────────────────────────────────────────
+
+TAOBAO_AUTHORIZE_URL = "https://oauth.taobao.com/authorize"
+TAOBAO_TOKEN_URL = "https://oauth.taobao.com/token"
+
+
+@app.get("/api/auth/taobao")
+def taobao_login():
+    if not config.TAOBAO_APP_KEY:
+        raise HTTPException(status_code=500, detail="淘宝 OAuth 未配置")
+    state = secrets.token_urlsafe(24)
+    _oauth_states[state] = datetime.now().timestamp()
+    params = {
+        "client_id": config.TAOBAO_APP_KEY,
+        "response_type": "code",
+        "redirect_uri": config.TAOBAO_CALLBACK_URL,
+        "state": state,
+        "view": "web",
+    }
+    return RedirectResponse(f"{TAOBAO_AUTHORIZE_URL}?{urlencode(params)}")
+
+
+@app.get("/api/auth/taobao/callback")
+async def taobao_callback(code: str, state: str):
+    if state not in _oauth_states:
+        raise HTTPException(status_code=400, detail="无效的 state 参数")
+    _oauth_states.pop(state)
+
+    import httpx as _httpx
+
+    # Exchange code for access_token
+    async with _httpx.AsyncClient(timeout=30) as client:
+        token_resp = await client.post(
+            TAOBAO_TOKEN_URL,
+            data={
+                "client_id": config.TAOBAO_APP_KEY,
+                "client_secret": config.TAOBAO_APP_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": config.TAOBAO_CALLBACK_URL,
+            },
+        )
+        token_data = token_resp.json()
+
+    access_token = token_data.get("access_token")
+    taobao_user_id = str(token_data.get("taobao_user_id", ""))
+    taobao_nick = token_data.get("taobao_nick", "")
+    if not access_token:
+        raise HTTPException(
+            status_code=400,
+            detail=f"淘宝授权失败: {token_data.get('error_description', '未知错误')}"
+        )
+
+    # Decode nick (Taobao returns URL-encoded Chinese)
+    from urllib.parse import unquote
+    nick_name = unquote(taobao_nick) if taobao_nick else f"taobao_{taobao_user_id[:6]}"
+
+    # Find or create user
+    existing = db.get_user_by_taobao_id(taobao_user_id)
+    if existing:
+        token = auth.create_access_token(existing["id"], existing["username"])
+        return RedirectResponse(f"/?token={token}&username={existing['username']}")
+
+    existing_by_name = db.get_user_by_username(nick_name)
+    if existing_by_name:
+        db.link_taobao_account(existing_by_name["id"], taobao_user_id)
+        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
+        return RedirectResponse(f"/?token={token}&username={existing_by_name['username']}")
+
+    user_id = str(uuid.uuid4())[:12]
+    new_user = db.create_taobao_user(user_id, nick_name, taobao_user_id)
+    if not new_user:
+        raise HTTPException(status_code=500, detail="创建用户失败")
+
+    token = auth.create_access_token(new_user["id"], new_user["username"])
+    return RedirectResponse(f"/?token={token}&username={new_user['username']}")
+
+
 # ── 旧版规划接口（保留向后兼容） ──────────────────────────
 
 @app.post("/api/plan")

@@ -124,3 +124,18 @@ def resolve_node_dir() -> str:
         if _node_major(os.path.join(d, node_name)) >= 18:
             return d
     return ""
+
+# Alipay OAuth
+ALIPAY_APP_ID = get_env("ALIPAY_APP_ID", "")
+ALIPAY_PRIVATE_KEY = get_env("ALIPAY_PRIVATE_KEY", "")
+ALIPAY_PUBLIC_KEY = get_env("ALIPAY_PUBLIC_KEY", "")
+ALIPAY_CALLBACK_URL = get_env(
+    "ALIPAY_CALLBACK_URL", "https://gogather.partystack.cn/api/auth/alipay/callback"
+)
+
+# Taobao OAuth
+TAOBAO_APP_KEY = get_env("TAOBAO_APP_KEY", "")
+TAOBAO_APP_SECRET = get_env("TAOBAO_APP_SECRET", "")
+TAOBAO_CALLBACK_URL = get_env(
+    "TAOBAO_CALLBACK_URL", "https://gogather.partystack.cn/api/auth/taobao/callback"
+)
