@@ -142,9 +142,10 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 硬性要求：
 1. action_items 与 timeline 中的每个项目都必须带上飞猪结果里的「预订链接」原文
 2. price / estimated_cost 必须优先使用飞猪结果中的真实价格（如「价格: ¥554」）
-3. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、去程交通 = 去程单价×{group_size}人、返程交通 = 返程单价×{group_size}人（若两段都有价格）、门票 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
-4. budget_per_person = 总预算 ÷ {group_size}，必须给出具体数字
-5. **预算档次指导**：{budget_hint}。在飞猪结果中优先选择符合该档次的选项
+3. **若飞猪结果无价格**：timeline.price 填"点击预订链接查看实时价格"，budget 中该项不计入总额但 description 注明"需通过预订链接确认价格"
+4. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、去程交通 = 去程单价×{group_size}人、返程交通 = 返程单价×{group_size}人（若两段都有价格）、门票 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
+5. budget_per_person = 总预算 ÷ {group_size}，必须给出具体数字
+6. **预算档次指导**：{budget_hint}。在飞猪结果中优先选择符合该档次的选项
 请输出严格的 JSON 格式方案。
 """
 

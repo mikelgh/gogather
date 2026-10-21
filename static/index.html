@@ -2328,7 +2328,7 @@ function addMessage(role, content, params = null) {
   messages.scrollTop = messages.scrollHeight;
 }
 
-function showTypingIndicator() {
+function showTypingIndicator(message = '正在思考...') {
   const messages = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'typing-indicator';
@@ -2342,9 +2342,18 @@ function showTypingIndicator() {
       <div class="typing-dot"></div>
       <div class="typing-dot"></div>
     </div>
+    <div class="typing-message" style="font-size:13px;color:var(--text-secondary);padding:16px 0;">${message}</div>
   `;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+}
+
+function updateTypingIndicator(message) {
+  const indicator = document.getElementById('typingIndicator');
+  if (indicator) {
+    const msgEl = indicator.querySelector('.typing-message');
+    if (msgEl) msgEl.textContent = message;
+  }
 }
 
 function hideTypingIndicator() {
@@ -2391,7 +2400,23 @@ async function sendMessage() {
   sendBtn.disabled = true;
   
   state.conversation.push({ role: 'user', content: message });
-  showTypingIndicator();
+  showTypingIndicator('正在分析需求...');
+  
+  // 进度提示定时器
+  const progressMessages = [
+    '正在查询飞猪航班...',
+    '正在搜索酒店...',
+    '正在查找景点和活动...',
+    '正在生成方案...',
+    '正在计算预算...',
+  ];
+  let progressIdx = 0;
+  const progressTimer = setInterval(() => {
+    if (progressIdx < progressMessages.length) {
+      updateTypingIndicator(progressMessages[progressIdx]);
+      progressIdx++;
+    }
+  }, 8000); // 每8秒切换一次提示
   
   try {
     const resp = await authFetch('/api/chat', {
@@ -2405,6 +2430,7 @@ async function sendMessage() {
       }),
     });
     
+    clearInterval(progressTimer);
     hideTypingIndicator();
     const data = await resp.json();
     
@@ -2424,6 +2450,7 @@ async function sendMessage() {
       loadPlanList();
     }
   } catch (err) {
+    clearInterval(progressTimer);
     hideTypingIndicator();
     addMessage('assistant', '出错了，请重试：' + err.message);
     showToast('请求失败', 'error');
