@@ -177,11 +177,7 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 请输出严格的 JSON 格式方案。
 """
 
-    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=8000)
-    if not result:
-        # 重试：简化提示词，减少输出长度
-        simplified_prompt = user_prompt.replace("10. **每日餐饮覆盖**：从入住到退房的每一天，时间线必须包含午餐和晚餐安排（至少 2 餐/天）。若飞猪结果中餐厅数量不足以覆盖所有餐次，剩余餐次在当天活动附近推荐「周边餐饮」，price 标注\"按飞猪人均参考估算\"或\"点击预订链接查看实时价格\"，notes 注明\"建议提前预订团体餐\"\n11. **时间线完整性**：timeline 应覆盖从 Day 1 入住到 Day N 退房的全部天数，每天至少有：早餐（酒店/周边）、午餐、晚餐、当日主要活动\n", "")
-        result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, simplified_prompt, max_tokens=8000)
+    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=6000)
     if not result:
         return _fallback_structured(params, flyai_sections)
 

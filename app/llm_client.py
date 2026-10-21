@@ -125,8 +125,11 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_
         return None
 
 
-def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False) -> dict | None:
-    """调用 LLM 并强制返回 JSON 格式。失败返回 None。"""
+def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False, max_retries: int = 2) -> dict | None:
+    """调用 LLM 并强制返回 JSON 格式。失败返回 None。
+
+    自适应重试：若检测到 JSON 被截断（Unterminated string），自动提升 max_tokens 重试。
+    """
     provider = config.LLM_PROVIDER.lower()
     if provider == "minimax":
         if not config.MINIMAX_API_KEY:
@@ -136,13 +139,12 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
             "Authorization": f"Bearer {config.MINIMAX_API_KEY}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload_template = {
             "model": config.MINIMAX_MODEL,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": max_tokens,
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
             "thinking": {"type": "disabled"},
@@ -155,26 +157,39 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
             "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
             "Content-Type": "application/json",
         }
-        # 根据任务复杂度选择模型
         model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
-        payload = {
+        payload_template = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": max_tokens,
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
         }
-    try:
-        with httpx.Client(timeout=120) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-        text = data["choices"][0]["message"]["content"].strip()
-        text = text.lstrip("```json").rstrip("```").strip()
-        return _json.loads(text)
-    except Exception as e:
-        log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
-        return None
+
+    current_max_tokens = max_tokens
+    for attempt in range(max_retries + 1):
+        payload = {**payload_template, "max_tokens": current_max_tokens}
+        try:
+            with httpx.Client(timeout=120) as client:
+                resp = client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            text = data["choices"][0]["message"]["content"].strip()
+            text = text.lstrip("```json").rstrip("```").strip()
+            return _json.loads(text)
+        except _json.JSONDecodeError as e:
+            # 检测是否因截断导致解析失败
+            error_msg = str(e)
+            is_truncated = "Unterminated string" in error_msg or "Expecting" in error_msg
+            if is_truncated and attempt < max_retries:
+                # 自适应提升 tokens：每次翻倍，上限 16000
+                current_max_tokens = min(current_max_tokens * 2, 16000)
+                log.warning("JSON truncated at attempt %d, retrying with max_tokens=%d", attempt + 1, current_max_tokens)
+                continue
+            log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
+            return None
+        except Exception as e:
+            log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
+            return None
