@@ -152,6 +152,17 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
     # 偏好标签
     preferences_text = "、".join(preferences) if preferences else "无特定偏好"
 
+    # 提取交通时间信息（用于约束时间线生成）
+    transport_schedule = ""
+    for title, data in flyai_sections:
+        if "去程" in title or "返程" in title:
+            # 尝试从标题和数据中提取时间
+            import re
+            # 匹配类似 "Day 1 23:00" 或 "2026-11-01 23:00" 的时间
+            time_patterns = re.findall(r'(Day\s*\d+\s+\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})', data)
+            if time_patterns:
+                transport_schedule += f"{title}: {', '.join(time_patterns[:2])}\n"
+
     # 构建用户场景描述
     scenario = f"""
 城市：{city}
@@ -163,6 +174,8 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 团体构成：{composition_text}
 兴趣偏好：{preferences_text}
 """
+    if transport_schedule:
+        scenario += f"交通时间：\n{transport_schedule}"
 
     user_prompt = f"""
 请基于以下飞猪 AI 搜索结果，为{group_size}人的{city}聚会生成结构化方案。
@@ -183,6 +196,10 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
    - 若有老人（{elderly_count or '无'}），选择交通便利、步行距离短的景点，避免爬山等高强度活动
    - 若有无障碍需求（{accessibility or '无'}），确保推荐的酒店和景点有无障碍设施
 8. **兴趣偏好匹配**：优先推荐符合用户兴趣标签（{preferences_text}）的活动和餐厅
+9. **时间线必须考虑交通时间**：
+   - 若交通在 Day 1 晚上出发、Day 2 早上到达，则 Day 1 的活动应安排在出发地（{origin}）或省略
+   - Day 2 及之后的活动才能安排在目的地（{city}）
+   - 退房日（{check_out}）的活动必须在退房时间之后安排
 请输出严格的 JSON 格式方案。
 """
 
