@@ -94,16 +94,14 @@ def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
     return {"id": payload["sub"], "username": payload.get("username", "")}
 
 
-# Admin whitelist - only these GitHub IDs can access admin endpoints
-ADMIN_GITHUB_IDS = {"40478199"}  # mikelgh's GitHub ID
+# Admin whitelist - only these GitHub usernames can access admin endpoints
+ADMIN_GITHUB_USERNAMES = {"mikelgh", "mikelgh2026"}
 
 
 def get_admin_user(authorization: str | None = Header(None)) -> dict:
     """管理员认证：仅允许白名单内的 GitHub 用户。"""
     user = get_current_user(authorization)
-    # Check if user has GitHub ID in whitelist
-    user_data = db.get_user_by_username(user["username"])
-    if not user_data or user_data.get("github_id") not in ADMIN_GITHUB_IDS:
+    if user["username"] not in ADMIN_GITHUB_USERNAMES:
         raise HTTPException(status_code=403, detail="无管理员权限")
     return user
 
