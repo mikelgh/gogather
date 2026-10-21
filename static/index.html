@@ -1685,6 +1685,7 @@ async function initAuth() {
     document.getElementById('authModal').classList.add('hidden');
     showUserMenu();
     await loadConversations();
+    await restorePlan();
   } else {
     document.getElementById('authModal').classList.remove('hidden');
   }
@@ -1707,6 +1708,36 @@ async function loadConversations() {
     }
   } catch (e) {
     console.error('Failed to load conversations:', e);
+  }
+}
+
+async function restorePlan() {
+  const planId = localStorage.getItem('juxing_planId');
+  if (!planId) return;
+  try {
+    const resp = await fetch(`/api/plan/${planId}`, {
+      headers: { 'Authorization': `Bearer ${state.token}` }
+    });
+    if (resp.ok) {
+      const plan = await resp.json();
+      state.planId = planId;
+      state.plan = plan;
+      state.structured = {
+        summary: plan.summary,
+        timeline: plan.timeline || [],
+        budget: plan.budget || [],
+        action_items: plan.action_items || [],
+        room_allocation: plan.room_allocation || [],
+        budget_per_person: plan.budget_per_person,
+        city: plan.params?.city || '',
+      };
+      state.extractedParams = plan.params || {};
+      showPlan(plan, planId, state.structured);
+    } else {
+      localStorage.removeItem('juxing_planId');
+    }
+  } catch (e) {
+    console.error('Failed to restore plan:', e);
   }
 }
 
@@ -1856,6 +1887,7 @@ function startOver() {
   state.structured = {};
   state.conversation = [];
   state.extractedParams = {};
+  localStorage.removeItem('juxing_planId');
   document.getElementById('chatMessages').innerHTML = '';
   document.getElementById('shareResult').style.display = 'none';
   switchView('chat');
@@ -1973,6 +2005,7 @@ async function sendMessage() {
       state.structured = data.structured || {};
       state.planId = data.plan_id;
       state.extractedParams = data.extracted_params;
+      localStorage.setItem('juxing_planId', data.plan_id);
       addMessage('assistant', '方案已生成！点击下方查看详细内容。');
       showToast('方案已生成', 'success');
       showPlan(data.plan, data.plan_id, data.structured);
