@@ -114,6 +114,8 @@ def generate_cover(
     if date_range:
         info_parts.append(date_range)
     if group_size:
+        # 确保 group_size 是字符串
+        group_size = str(group_size)
         # 确保格式正确
         if "人" not in group_size:
             group_size = f"{group_size}人"
@@ -301,6 +303,8 @@ def _generate_cover_with_background(
     if date_range:
         info_parts.append(date_range)
     if group_size:
+        # 确保 group_size 是字符串
+        group_size = str(group_size)
         if "人" not in group_size:
             group_size = f"{group_size}人"
         info_parts.append(group_size)
