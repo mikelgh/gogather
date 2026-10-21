@@ -30,7 +30,8 @@ EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自
 5. 如果信息不足，生成 1-3 个简短追问，不要重复已提取的信息。
 6. 如果 budget_tier 未提及，在追问中询问预算档次偏好。
 7. 如果团体中有儿童或老人，追问年龄和无障碍需求以便推荐合适的活动。
-8. 如果 origin 和 city 都已提取，且用户未指定 transport_mode，根据距离判断是否追问交通方式：
+8. 如果 origin 和 city 都已提取，但 check_in 未指定，必须追问出行日期（如"请问计划哪天出发？"）。
+9. 如果 origin 和 city 都已提取，且用户未指定 transport_mode，根据距离判断是否追问交通方式：
    - 近距离（≤600km，如上海→杭州）：默认推荐高铁，追问中告知用户"已为您优先推荐高铁"
    - 中距离（600-1200km，如上海→北京）：追问"您偏好飞机还是高铁？"
    - 远距离（>1200km，如北京→广州）：默认推荐飞机，追问中告知用户"已为您优先推荐飞机"
@@ -115,6 +116,10 @@ def is_sufficient(params: dict) -> bool:
         return False
     if not params.get("check_in") and not params.get("activity_type"):
         return False
+    # 若有出发地（需要交通），必须指定日期
+    if params.get("origin") and params.get("origin") != params.get("city", ""):
+        if not params.get("check_in"):
+            return False
     return True
 
 

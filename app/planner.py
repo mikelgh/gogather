@@ -330,11 +330,13 @@ def build_sections(inp: dict) -> tuple:
         ("food", _query_food),
     ]
     
-    if origin and origin != city:
+    if origin and origin != city and check_in:
         transport_mode = inp.get("transport_mode", "auto")
         tasks.append(("outbound", lambda: _query_transport("outbound", check_in, transport_mode)))
         if check_out:
             tasks.append(("return", lambda: _query_transport("return", check_out, transport_mode)))
+    elif origin and origin != city and not check_in:
+        warnings.append(f"⚠️ 未指定出行日期，无法查询{origin}→{city}的交通信息。请在对话中提供出发日期。")
 
     # 并行执行所有查询
     with ThreadPoolExecutor(max_workers=6) as executor:
