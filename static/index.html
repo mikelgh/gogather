@@ -2238,13 +2238,21 @@ async function initAuth() {
   const urlParams = new URLSearchParams(window.location.search);
   const urlToken = urlParams.get('token');
   const urlUsername = urlParams.get('username');
+  const returnTo = urlParams.get('return_to');
 
   if (urlToken && urlUsername) {
     state.token = urlToken;
     state.user = { id: '', username: urlUsername };
     localStorage.setItem('juxing_token', urlToken);
     localStorage.setItem('juxing_user', JSON.stringify(state.user));
+    localStorage.setItem('juxing_username', urlUsername);
     window.history.replaceState({}, document.title, window.location.pathname);
+    
+    // Redirect to admin page if requested
+    if (returnTo === 'admin') {
+      window.location.href = '/admin';
+      return;
+    }
   }
 
   if (state.token && state.user) {

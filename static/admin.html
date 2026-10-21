@@ -242,12 +242,13 @@ let username = '';
 
 // Check authentication
 function checkAuth() {
-  const params = new URLSearchParams(window.location.search);
-  token = params.get('token') || localStorage.getItem('admin_token');
-  username = params.get('username') || localStorage.getItem('admin_username');
+  // Use same token storage as main page
+  token = localStorage.getItem('juxing_token');
+  username = localStorage.getItem('juxing_username');
 
   if (!token || !username) {
-    window.location.href = '/?redirect=admin';
+    // Not logged in, redirect to main page with return URL
+    window.location.href = '/?return_to=admin';
     return false;
   }
 
@@ -257,10 +258,6 @@ function checkAuth() {
     return false;
   }
 
-  localStorage.setItem('admin_token', token);
-  localStorage.setItem('admin_username', username);
-
-  document.getElementById('userName').textContent = username;
   return true;
 }
 
