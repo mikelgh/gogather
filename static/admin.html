@@ -244,20 +244,20 @@ let username = '';
 function checkAuth() {
   // Use same token storage as main page
   token = localStorage.getItem('juxing_token');
-  username = localStorage.getItem('juxing_username');
-
-  if (!token || !username) {
+  const userStr = localStorage.getItem('juxing_user');
+  
+  if (!token || !userStr) {
     // Not logged in, redirect to main page with return URL
     window.location.href = '/?return_to=admin';
     return false;
   }
+  
+  const user = JSON.parse(userStr);
+  username = user.username;
 
-  // Check if user is admin
-  if (username !== 'mikelgh') {
-    showError('无管理员权限：仅 mikelgh 可访问管理后台');
-    return false;
-  }
-
+  // Display username in header
+  document.getElementById('userName').textContent = username;
+  
   return true;
 }
 
@@ -271,6 +271,10 @@ async function apiGet(path) {
   const resp = await fetch(API_BASE + path, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
+  if (resp.status === 403) {
+    showError('无管理员权限：仅特定 GitHub 用户可访问管理后台');
+    throw new Error('Permission denied');
+  }
   if (!resp.ok) {
     throw new Error(`API error: ${resp.status}`);
   }
