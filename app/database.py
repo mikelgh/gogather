@@ -239,6 +239,20 @@ def get_plan_by_share(share_code: str) -> dict | None:
     return _row_to_dict(row)
 
 
+def delete_plan(plan_id: str, user_id: str | None = None) -> bool:
+    """删除方案。返回是否成功删除。"""
+    conn = _get_conn()
+    if user_id:
+        cursor = conn.execute(
+            "DELETE FROM plans WHERE id = ? AND user_id = ?", (plan_id, user_id)
+        )
+    else:
+        cursor = conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
+    conn.commit()
+    conn.close()
+    return cursor.rowcount > 0
+
+
 def update_task_status(plan_id: str, task_id: str, status: str, user_id: str | None = None) -> dict | None:
     plan = get_plan(plan_id, user_id=user_id)
     if not plan:

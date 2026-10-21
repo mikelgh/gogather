@@ -342,6 +342,15 @@ def api_get_plan(plan_id: str, user: dict = Depends(get_current_user)):
     return plan
 
 
+@app.delete("/api/plan/{plan_id}")
+def api_delete_plan(plan_id: str, user: dict = Depends(get_current_user)):
+    """删除方案。"""
+    success = db.delete_plan(plan_id, user_id=user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return {"message": "方案已删除"}
+
+
 @app.put("/api/plan/{plan_id}/task/{task_id}")
 def api_update_task(plan_id: str, task_id: str, req: TaskUpdateRequest, user: dict = Depends(get_current_user)):
     plan = db.update_task_status(plan_id, task_id, req.status, user_id=user["id"])

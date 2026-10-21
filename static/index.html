@@ -1532,7 +1532,8 @@ body {
 /* ── Sidebar Layout ────────────────────────────────────── */
 .app-layout {
   display: flex;
-  min-height: calc(100vh - 57px);
+  height: calc(100vh - 57px);
+  overflow: hidden;
 }
 
 .sidebar {
@@ -1542,7 +1543,7 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .sidebar-header {
@@ -1585,6 +1586,7 @@ body {
   list-style: none;
   padding: 8px;
   flex: 1;
+  overflow-y: auto;
 }
 
 .plan-list-item {
@@ -1594,6 +1596,14 @@ body {
   transition: var(--transition);
   margin-bottom: 4px;
   border: 1px solid transparent;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.plan-list-item-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .plan-list-item:hover {
@@ -1629,6 +1639,32 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 6px;
+}
+
+.plan-list-item-delete {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: var(--transition);
+  margin-top: 2px;
+}
+
+.plan-list-item:hover .plan-list-item-delete {
+  opacity: 1;
+}
+
+.plan-list-item-delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
 }
 
 .plan-list-empty {
@@ -2117,15 +2153,42 @@ async function loadPlanList() {
       const title = [city, group].filter(Boolean).join(' ') || p.original_input?.slice(0, 20) || '未命名方案';
       const meta = [dates, origin, vibe, budgetTier].filter(Boolean).join(' · ');
       return `
-        <li class="plan-list-item${isActive ? ' active' : ''}" onclick="selectPlan('${p.id}')">
-          <div class="plan-list-item-title">${title}</div>
-          <div class="plan-list-item-summary">${meta || p.summary || ''}</div>
-          <div class="plan-list-item-date">${date}</div>
+        <li class="plan-list-item${isActive ? ' active' : ''}">
+          <div class="plan-list-item-content" onclick="selectPlan('${p.id}')">
+            <div class="plan-list-item-title">${title}</div>
+            <div class="plan-list-item-summary">${meta || p.summary || ''}</div>
+            <div class="plan-list-item-date">${date}</div>
+          </div>
+          <button class="plan-list-item-delete" onclick="deletePlan(event, '${p.id}')" title="删除方案">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
         </li>
       `;
     }).join('');
   } catch (e) {
     console.error('Failed to load plan list:', e);
+  }
+}
+
+async function deletePlan(event, planId) {
+  event.stopPropagation();
+  if (!confirm('确定要删除这个方案吗？此操作不可恢复。')) return;
+  
+  try {
+    const resp = await authFetch(`/api/plan/${planId}`, { method: 'DELETE' });
+    if (!resp.ok) {
+      showToast('删除失败', 'error');
+      return;
+    }
+    showToast('方案已删除', 'success');
+    if (state.planId === planId) {
+      state.planId = null;
+      state.plan = null;
+    }
+    await loadPlanList();
+  } catch (e) {
+    console.error('Delete plan failed:', e);
+    showToast('删除失败', 'error');
   }
 }
 
