@@ -706,16 +706,7 @@ function renderPlan(plan) {
   let html = `
     <div class="plan-header" style="position: relative; border-radius: 16px; margin-bottom: 24px; overflow: hidden;">
       <img src="/share/${code}/cover.png" alt="${title}" style="width: 100%; height: 300px; object-fit: cover; display: block;">
-      <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 60%, transparent 100%); padding: 32px 24px 24px; color: white;">
-        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 8px;">GoGather 聚行</div>
-        <div class="plan-title" style="margin-bottom: 12px;">
-          <span style="font-size: 28px; font-weight: 700;">${city ? city + ' 出行方案' : '出行方案'}</span>
-          <span class="plan-badge" style="background: rgba(255,255,255,0.2); color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; margin-left: 12px;">已生成</span>
-        </div>
-        ${dateRange ? `<div style="font-size: 14px; opacity: 0.95; margin-bottom: 8px;"> ${dateRange}</div>` : ''}
-        ${groupSize ? `<div style="font-size: 14px; opacity: 0.95; margin-bottom: 12px;">👥 ${groupSize}</div>` : ''}
-        ${summary ? `<p class="plan-summary" style="color: rgba(255,255,255,0.95); font-size: 14px; line-height: 1.6; margin: 0;">${summary}</p>` : ''}
-      </div>
+      <span class="plan-badge" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.95); color: var(--primary); padding: 6px 14px; border-radius: 12px; font-size: 12px; font-weight: 600;">已生成</span>
     </div>
   `;
 

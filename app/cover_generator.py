@@ -188,12 +188,42 @@ def generate_cover_cached(
     return cache_path
 
 
+def extract_primary_city(city: str) -> str:
+    """从多城市名称中提取主城市（用于匹配 AI 封面缓存）。
+    
+    例如：
+    - "成都 + 九寨沟 + 乐山" -> "成都"
+    - "广州→成都" -> "成都"
+    - "成都" -> "成都"
+    """
+    if not city:
+        return ""
+    
+    # 处理 "城市 A + 城市 B + 城市 C" 格式
+    if "+" in city:
+        return city.split("+")[0].strip()
+    
+    # 处理 "城市 A→城市 B" 格式（取目的地）
+    if "→" in city:
+        parts = city.split("→")
+        return parts[-1].strip() if len(parts) > 1 else parts[0].strip()
+    
+    # 处理 "城市 A-城市 B" 格式
+    if "-" in city and len(city) > 10:
+        return city.split("-")[0].strip()
+    
+    return city.strip()
+
+
 def generate_ai_background(city: str, cache_dir: str = "/tmp/gogather_covers") -> str:
     """使用 ImageGen 为城市生成 AI 背景图，返回文件路径。"""
     os.makedirs(cache_dir, exist_ok=True)
     
-    # 缓存键基于城市名
-    cache_hash = hashlib.md5(city.encode()).hexdigest()[:12]
+    # 提取主城市（处理多城市名称）
+    primary_city = extract_primary_city(city)
+    
+    # 缓存键基于主城市名
+    cache_hash = hashlib.md5(primary_city.encode()).hexdigest()[:12]
     bg_path = os.path.join(cache_dir, f"bg_{cache_hash}.png")
     
     if os.path.exists(bg_path):
