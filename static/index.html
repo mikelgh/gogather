@@ -473,6 +473,104 @@ body {
 
 .quick-action:active { transform: translateY(0); }
 
+.budget-tier-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.budget-tier-btn.active:hover {
+  background: var(--primary-dark);
+}
+
+/* ── Revision Input ──────────────────────────────────────── */
+.revision-area {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.revision-area-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.revision-input-wrapper {
+  display: flex;
+  gap: 8px;
+}
+
+.revision-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: var(--transition);
+  resize: none;
+  color: var(--text);
+}
+
+.revision-input:focus {
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+}
+
+.revision-input::placeholder { color: var(--text-muted); }
+
+.revision-send-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.revision-send-btn:hover { background: var(--primary-dark); transform: scale(1.04); }
+.revision-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.revision-quick-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.revision-quick-tag {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.revision-quick-tag:hover {
+  border-color: var(--primary-light);
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
 /* ── Plan View ─────────────────────────────────────────── */
 .plan-view { display: none; }
 .plan-view.active { display: block; animation: fadeInUp 0.4s ease both; }
@@ -1726,6 +1824,12 @@ body {
           <button class="quick-action" onclick="quickInput('婚礼出行，50人，三亚')">婚礼出行</button>
           <button class="quick-action" onclick="quickInput('朋友旅行，4人，成都，周末')">朋友旅行</button>
         </div>
+        <div class="quick-actions" id="budgetTierActions">
+          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">预算：</span>
+          <button class="quick-action budget-tier-btn" data-tier="经济型" onclick="selectBudgetTier('经济型')">💰 经济型</button>
+          <button class="quick-action budget-tier-btn active" data-tier="舒适型" onclick="selectBudgetTier('舒适型')">💎 舒适型</button>
+          <button class="quick-action budget-tier-btn" data-tier="豪华型" onclick="selectBudgetTier('豪华型')">👑 豪华型</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1781,6 +1885,26 @@ body {
         <span class="share-result-label">分享链接</span>
         <a id="shareLink" href="#" target="_blank" class="share-result-link"></a>
         <button onclick="copyShareLink()" class="copy-btn">复制</button>
+      </div>
+    </div>
+
+    <div class="revision-area">
+      <div class="revision-area-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        修改方案
+      </div>
+      <div class="revision-input-wrapper">
+        <textarea class="revision-input" id="revisionInput" placeholder="例如：换个便宜点的酒店、加一个团建活动、预算降到人均800..." rows="1" oninput="autoResize(this)"></textarea>
+        <button class="revision-send-btn" id="revisionSendBtn" onclick="sendRevision()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+      </div>
+      <div class="revision-quick-tags">
+        <button class="revision-quick-tag" onclick="quickRevision('换更便宜的酒店')">换便宜酒店</button>
+        <button class="revision-quick-tag" onclick="quickRevision('升级到豪华酒店')">升级酒店</button>
+        <button class="revision-quick-tag" onclick="quickRevision('增加一个团建活动')">加团建活动</button>
+        <button class="revision-quick-tag" onclick="quickRevision('减少自由活动时间')">紧凑行程</button>
+        <button class="revision-quick-tag" onclick="quickRevision('增加自由活动时间')">增加自由时间</button>
       </div>
     </div>
   </div>
@@ -1849,6 +1973,7 @@ const state = {
   authMode: 'login',
   token: localStorage.getItem('juxing_token'),
   user: JSON.parse(localStorage.getItem('juxing_user') || 'null'),
+  budgetTier: '舒适型',
 };
 
 // ── Auth ──────────────────────────────────────────────────
@@ -1966,8 +2091,9 @@ async function loadPlanList() {
       const dates = params.check_in && params.check_out ? `${params.check_in.slice(5)}~${params.check_out.slice(5)}` : '';
       const origin = params.origin ? `从${params.origin}出发` : '';
       const vibe = params.vibe || '';
+      const budgetTier = params.budget_tier || '';
       const title = [city, group].filter(Boolean).join(' ') || p.original_input?.slice(0, 20) || '未命名方案';
-      const meta = [dates, origin, vibe].filter(Boolean).join(' · ');
+      const meta = [dates, origin, vibe, budgetTier].filter(Boolean).join(' · ');
       return `
         <li class="plan-list-item${isActive ? ' active' : ''}" onclick="selectPlan('${p.id}')">
           <div class="plan-list-item-title">${title}</div>
@@ -2183,7 +2309,7 @@ function addMessage(role, content, params = null) {
     const labelMap = {
       city: '城市', check_in: '入住', check_out: '退房',
       origin: '出发', group_size: '人数', vibe: '偏好',
-      budget: '预算', activity_type: '类型',
+      budget: '预算', budget_tier: '档次', activity_type: '类型',
     };
     const chips = Object.entries(params)
       .filter(([k, v]) => v && v !== 'null' && v !== null)
@@ -2243,6 +2369,13 @@ function quickInput(text) {
   sendMessage();
 }
 
+function selectBudgetTier(tier) {
+  state.budgetTier = tier;
+  document.querySelectorAll('.budget-tier-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tier === tier);
+  });
+}
+
 async function sendMessage() {
   if (state.isSending) return;
   const input = document.getElementById('chatInput');
@@ -2268,6 +2401,7 @@ async function sendMessage() {
         message,
         conversation: state.conversation.slice(-6),
         plan_id: state.planId,
+        budget_tier: state.budgetTier,
       }),
     });
     
@@ -2305,8 +2439,10 @@ function showPlan(plan, planId, structured = {}) {
   document.getElementById('planView').classList.add('active');
   
   const city = structured.city || state.extractedParams.city || plan.city || '';
+  const budgetTier = state.extractedParams.budget_tier || plan.params?.budget_tier || '';
+  const tierBadge = budgetTier ? ` · ${budgetTier}` : '';
   document.getElementById('planTitle').textContent = city ? `${city} 出行方案` : '出行方案';
-  document.getElementById('planSummary').textContent = structured.summary || plan.markdown?.slice(0, 150) + '...' || '方案已生成，请查看时间线、预算和待办事项。';
+  document.getElementById('planSummary').textContent = (structured.summary || plan.markdown?.slice(0, 150) + '...' || '方案已生成，请查看时间线、预算和待办事项。') + tierBadge;
   
   renderTimeline(structured);
   renderBudget(structured);
@@ -2536,6 +2672,44 @@ function copyShareLink() {
   }).catch(() => {
     showToast('复制失败，请手动复制', 'error');
   });
+}
+
+// ── Plan Revision ─────────────────────────────────────────
+function quickRevision(text) {
+  document.getElementById('revisionInput').value = text;
+  sendRevision();
+}
+
+async function sendRevision() {
+  if (!state.planId) return;
+  const input = document.getElementById('revisionInput');
+  const message = input.value.trim();
+  if (!message) return;
+
+  const btn = document.getElementById('revisionSendBtn');
+  btn.disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  try {
+    const resp = await authFetch(`/api/plan/${state.planId}/revise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '修改失败');
+
+    state.structured = data.structured;
+    state.plan = { ...state.plan, ...data.structured };
+    showPlan(state.plan, state.planId, data.structured);
+    showToast('方案已修改', 'success');
+  } catch (err) {
+    showToast('修改失败：' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────

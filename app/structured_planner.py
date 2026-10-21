@@ -105,6 +105,7 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
     check_out = params.get("check_out", "")
     origin = params.get("origin", "")
     vibe = params.get("vibe", "")
+    budget_tier = params.get("budget_tier", "舒适型")
 
     # 构建飞猪数据摘要（结构化数据含价格+链接，放宽截断以保留完整价格信息）
     flyai_summary = []
@@ -113,6 +114,14 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 
     flyai_text = "\n\n".join(flyai_summary)
 
+    # 预算档次对应的价格指导
+    budget_guidance = {
+        "经济型": "优先选择价格最低的选项，住宿选经济型酒店/民宿（200元以下/晚），餐饮选平价餐厅",
+        "舒适型": "选择中等价位选项，住宿选中档酒店（300-500元/晚），餐饮选中档餐厅",
+        "豪华型": "优先选择品质高的选项，住宿选高档酒店/度假村（600元以上/晚），餐饮选特色高端餐厅",
+    }
+    budget_hint = budget_guidance.get(budget_tier, budget_guidance["舒适型"])
+
     # 构建用户场景描述
     scenario = f"""
 城市：{city}
@@ -120,6 +129,7 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 出发地：{origin}
 人数：{group_size}人
 偏好：{vibe}
+预算档次：{budget_tier}（{budget_hint}）
 """
 
     user_prompt = f"""
@@ -134,6 +144,7 @@ def generate_structured_plan(params: dict, flyai_sections: list) -> dict:
 2. price / estimated_cost 必须优先使用飞猪结果中的真实价格（如「价格: ¥554」）
 3. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、去程交通 = 去程单价×{group_size}人、返程交通 = 返程单价×{group_size}人（若两段都有价格）、门票 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
 4. budget_per_person = 总预算 ÷ {group_size}，必须给出具体数字
+5. **预算档次指导**：{budget_hint}。在飞猪结果中优先选择符合该档次的选项
 请输出严格的 JSON 格式方案。
 """
 
@@ -211,3 +222,58 @@ def calculate_room_allocation(group_size: int, hotel_info: str = "") -> list:
         })
 
     return rooms
+
+
+REVISE_PLAN_SYSTEM = """你是一个旅行方案修改助手。根据用户的修改要求，更新现有的结构化方案。
+
+输出严格遵循以下 JSON 格式（不要 markdown 代码块）：
+{
+    "summary": "更新后的方案概述（50字内）",
+    "action_items": [...],
+    "timeline": [...],
+    "budget": [...],
+    "room_allocation": [...],
+    "budget_per_person": "约¥XXX"
+}
+
+规则：
+1. 仅修改用户要求的部分，其余保持不变
+2. 如果修改涉及价格变化，重新计算相关预算项
+3. 保留所有飞猪预订链接
+4. budget_per_person 必须重新计算为具体数字
+"""
+
+
+def revise_plan(params: dict, current_plan: dict, revision_message: str) -> dict:
+    """基于用户反馈修改现有方案。
+
+    Args:
+        params: 原始用户参数
+        current_plan: 当前结构化方案
+        revision_message: 用户的修改要求
+
+    Returns:
+        修改后的结构化方案
+    """
+    import json
+
+    group_size = params.get("group_size", "30")
+
+    current_json = json.dumps(current_plan, ensure_ascii=False, indent=2)
+
+    user_prompt = f"""
+当前方案：
+{current_json}
+
+用户修改要求：{revision_message}
+
+人数：{group_size}人
+
+请根据用户要求修改方案，输出完整的更新后 JSON。
+"""
+
+    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000)
+    if not result:
+        return current_plan
+
+    return result

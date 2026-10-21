@@ -13,7 +13,7 @@ EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自
 - origin: 出发地
 - group_size: 人数（如 "30" 或 "30人"）
 - vibe: 氛围/偏好/主题
-- budget: 预算描述（如 "人均1000" 或 "预算友好"）
+- budget_tier: 预算档次（"经济型"、"舒适型"、"豪华型"，默认"舒适型"）
 - activity_type: 活动类型（如 "团建"、"同学聚会"、"婚礼"、"观赛"）
 
 规则：
@@ -22,10 +22,11 @@ EXTRACT_SYSTEM = """你是一个旅行规划参数提取助手。从用户的自
 3. 从活动类型和上下文推断缺失信息（如"同学聚会"暗示 group_size ≥ 10）。
 4. 判断信息是否足够生成方案。最少需要：city + (check_in 或 activity_type)。
 5. 如果信息不足，生成 1-3 个简短追问，不要重复已提取的信息。
+6. 如果 budget_tier 未提及，在追问中询问预算档次偏好。
 
 严格返回 JSON（不要 markdown 代码块）：
 {{
-    "extracted": {{"city": "...", "check_in": "...", ...}},
+    "extracted": {{"city": "...", "check_in": "...", "budget_tier": "...", ...}},
     "sufficient": false,
     "follow_up": "追问内容（如果 sufficient=false）"
 }}
@@ -113,4 +114,5 @@ def params_to_plan_input(params: dict) -> dict:
         "origin": params.get("origin", ""),
         "group_size": params.get("group_size", ""),
         "vibe": params.get("vibe", ""),
+        "budget_tier": params.get("budget_tier", "舒适型"),
     }

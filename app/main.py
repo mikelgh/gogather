@@ -31,6 +31,7 @@ class PlanRequest(BaseModel):
     origin: str = ""
     group_size: str = ""
     vibe: str = ""
+    budget_tier: str = "舒适型"
 
 
 class SearchRequest(BaseModel):
@@ -42,10 +43,15 @@ class ChatRequest(BaseModel):
     message: str
     plan_id: str | None = None
     conversation: list[dict] = Field(default_factory=list)
+    budget_tier: str = "舒适型"
 
 
 class TaskUpdateRequest(BaseModel):
     status: str
+
+
+class ReviseRequest(BaseModel):
+    message: str
 
 
 class RegisterRequest(BaseModel):
@@ -259,6 +265,9 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     sufficient = result.get("sufficient", False)
     follow_up = result.get("follow_up", "")
 
+    if not extracted.get("budget_tier"):
+        extracted["budget_tier"] = req.budget_tier
+
     if sufficient:
         from . import structured_planner
         plan_input = chat_mod.params_to_plan_input(extracted)
@@ -331,6 +340,50 @@ def api_update_task(plan_id: str, task_id: str, req: TaskUpdateRequest, user: di
     if not plan:
         raise HTTPException(status_code=404, detail="方案或任务不存在")
     return plan
+
+
+@app.post("/api/plan/{plan_id}/revise")
+def api_revise_plan(plan_id: str, req: ReviseRequest, user: dict = Depends(get_current_user)):
+    """对话式修改方案：基于用户反馈更新结构化方案。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+
+    from . import structured_planner
+
+    current_structured = {
+        "summary": plan.get("summary", ""),
+        "action_items": plan.get("action_items", []),
+        "timeline": plan.get("timeline", []),
+        "budget": plan.get("budget", []),
+        "room_allocation": plan.get("room_allocation", []),
+        "budget_per_person": plan.get("budget_per_person", ""),
+    }
+    params = plan.get("params", {})
+
+    revised = structured_planner.revise_plan(params, current_structured, req.message)
+    if not revised:
+        raise HTTPException(status_code=500, detail="修改失败，请重试")
+
+    now = datetime.now().isoformat()
+    plan["summary"] = revised.get("summary", plan.get("summary", ""))
+    plan["action_items"] = revised.get("action_items", plan.get("action_items", []))
+    plan["timeline"] = revised.get("timeline", plan.get("timeline", []))
+    plan["budget"] = revised.get("budget", plan.get("budget", []))
+    plan["room_allocation"] = revised.get("room_allocation", plan.get("room_allocation", []))
+    plan["budget_per_person"] = revised.get("budget_per_person", plan.get("budget_per_person", ""))
+    plan["updated_at"] = now
+    db.save_plan(plan)
+
+    db.save_conversation(user["id"], "user", req.message)
+    db.save_conversation(user["id"], "assistant", f"已修改方案：{revised.get('summary', '')[:100]}")
+
+    return {
+        "type": "revised",
+        "message": "方案已修改",
+        "plan_id": plan_id,
+        "structured": revised,
+    }
 
 
 @app.post("/api/plan/{plan_id}/share")
