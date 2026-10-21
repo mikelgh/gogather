@@ -640,13 +640,21 @@ function renderPlan(plan) {
   const budget = plan.budget || [];
   const actionItems = plan.action_items || [];
 
+  const checkIn = plan.params?.check_in || '';
+  const checkOut = plan.params?.check_out || '';
+  const dateRange = checkIn && checkOut ? `${checkIn.slice(5)} ~ ${checkOut.slice(5)}` : '';
+  const groupSize = plan.params?.group_size || '';
+
   let html = `
-    <div class="plan-header">
-      <div class="plan-title">
-        <span>${city ? city + ' 出行方案' : '出行方案'}</span>
-        <span class="plan-badge">已生成</span>
+    <div class="plan-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 32px 24px; border-radius: 16px; margin-bottom: 24px;">
+      <div style="font-size: 12px; opacity: 0.9; margin-bottom: 8px;">GoGather 聚行</div>
+      <div class="plan-title" style="margin-bottom: 12px;">
+        <span style="font-size: 28px; font-weight: 700;">${city ? city + ' 出行方案' : '出行方案'}</span>
+        <span class="plan-badge" style="background: rgba(255,255,255,0.2); color: white;">已生成</span>
       </div>
-      ${summary ? `<p class="plan-summary">${summary}</p>` : ''}
+      ${dateRange ? `<div style="font-size: 14px; opacity: 0.95; margin-bottom: 8px;">📅 ${dateRange}</div>` : ''}
+      ${groupSize ? `<div style="font-size: 14px; opacity: 0.95; margin-bottom: 12px;">👥 ${groupSize}</div>` : ''}
+      ${summary ? `<p class="plan-summary" style="color: rgba(255,255,255,0.95); font-size: 14px; line-height: 1.6; margin: 0;">${summary}</p>` : ''}
     </div>
   `;
 
