@@ -96,6 +96,27 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id)")
 
+    # migration: add plan_revisions table for version history
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS plan_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id TEXT NOT NULL,
+            revision_number INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            message TEXT NOT NULL,
+            summary TEXT,
+            action_items TEXT,
+            timeline TEXT,
+            budget TEXT,
+            room_allocation TEXT,
+            budget_per_person TEXT,
+            params TEXT,
+            FOREIGN KEY (plan_id) REFERENCES plans(id)
+        )
+    ''')
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_revisions_plan ON plan_revisions(plan_id)")
+
+
     conn.commit()
     conn.close()
 
@@ -410,3 +431,102 @@ def link_taobao_account(user_id: str, taobao_id: str, avatar_url: str = "") -> b
         return False
     finally:
         conn.close()
+
+
+def save_plan_revision(plan_id: str, revision_number: int, message: str, plan_data: dict) -> int:
+    """保存方案修订快照。返回 revision id。"""
+    from datetime import datetime
+    conn = _get_conn()
+    cursor = conn.execute(
+        """INSERT INTO plan_revisions 
+           (plan_id, revision_number, created_at, message, summary, action_items, 
+            timeline, budget, room_allocation, budget_per_person, params)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            plan_id,
+            revision_number,
+            datetime.now().isoformat(),
+            message,
+            plan_data.get("summary", ""),
+            json.dumps(plan_data.get("action_items", []), ensure_ascii=False),
+            json.dumps(plan_data.get("timeline", []), ensure_ascii=False),
+            json.dumps(plan_data.get("budget", []), ensure_ascii=False),
+            json.dumps(plan_data.get("room_allocation", []), ensure_ascii=False),
+            plan_data.get("budget_per_person", ""),
+            json.dumps(plan_data.get("params", {}), ensure_ascii=False),
+        ),
+    )
+    conn.commit()
+    revision_id = cursor.lastrowid
+    conn.close()
+    return revision_id
+
+
+def get_plan_revisions(plan_id: str, limit: int = 20) -> list[dict]:
+    """获取方案的修订历史。"""
+    conn = _get_conn()
+    rows = conn.execute(
+        """SELECT id, plan_id, revision_number, created_at, message, 
+                  summary, action_items, timeline, budget, room_allocation, 
+                  budget_per_person, params
+           FROM plan_revisions 
+           WHERE plan_id = ? 
+           ORDER BY revision_number DESC 
+           LIMIT ?""",
+        (plan_id, limit),
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        for key in ("action_items", "timeline", "budget", "room_allocation", "params"):
+            if d.get(key):
+                try:
+                    d[key] = json.loads(d[key])
+                except (json.JSONDecodeError, TypeError):
+                    d[key] = [] if key != "params" else {}
+        result.append(d)
+    return result
+
+
+def get_plan_revision(revision_id: int) -> dict | None:
+    """获取单个修订版本。"""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM plan_revisions WHERE id = ?", (revision_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    for key in ("action_items", "timeline", "budget", "room_allocation", "params"):
+        if d.get(key):
+            try:
+                d[key] = json.loads(d[key])
+            except (json.JSONDecodeError, TypeError):
+                d[key] = [] if key != "params" else {}
+    return d
+
+
+def rollback_plan(plan_id: str, revision_id: int, user_id: str | None = None) -> dict | None:
+    """回滚到指定修订版本。返回更新后的 plan。"""
+    revision = get_plan_revision(revision_id)
+    if not revision or revision["plan_id"] != plan_id:
+        return None
+    
+    plan = get_plan(plan_id, user_id=user_id)
+    if not plan:
+        return None
+    
+    from datetime import datetime
+    plan["summary"] = revision.get("summary", plan.get("summary", ""))
+    plan["action_items"] = revision.get("action_items", plan.get("action_items", []))
+    plan["timeline"] = revision.get("timeline", plan.get("timeline", []))
+    plan["budget"] = revision.get("budget", plan.get("budget", []))
+    plan["room_allocation"] = revision.get("room_allocation", plan.get("room_allocation", []))
+    plan["budget_per_person"] = revision.get("budget_per_person", plan.get("budget_per_person", ""))
+    plan["params"] = revision.get("params", plan.get("params", {}))
+    plan["updated_at"] = datetime.now().isoformat()
+    
+    save_plan(plan)
+    return plan

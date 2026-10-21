@@ -565,6 +565,50 @@ def api_revise_plan(plan_id: str, req: ReviseRequest, user: dict = Depends(get_c
     }
 
 
+# ── 修订历史 ──────────────────────────────────────────────
+
+@app.get("/api/plan/{plan_id}/revisions")
+def api_list_revisions(plan_id: str, user: dict = Depends(get_current_user)):
+    """获取方案的修订历史。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    return db.get_plan_revisions(plan_id)
+
+
+@app.post("/api/plan/{plan_id}/rollback/{revision_id}")
+def api_rollback_plan(plan_id: str, revision_id: int, user: dict = Depends(get_current_user)):
+    """回滚到指定修订版本。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    
+    revision = db.get_plan_revision(revision_id)
+    if not revision or revision["plan_id"] != plan_id:
+        raise HTTPException(status_code=404, detail="修订版本不存在")
+    
+    # Save current version as a revision before rollback
+    current_revision_count = len(db.get_plan_revisions(plan_id))
+    db.save_plan_revision(
+        plan_id, 
+        current_revision_count + 1, 
+        f"回滚前快照 (回滚到版本 {revision['revision_number']})",
+        plan
+    )
+    
+    # Perform rollback
+    updated_plan = db.rollback_plan(plan_id, revision_id, user_id=user["id"])
+    if not updated_plan:
+        raise HTTPException(status_code=500, detail="回滚失败")
+    
+    db.save_conversation(user["id"], "assistant", f"已回滚到版本 {revision['revision_number']}")
+    
+    return {
+        "message": f"已回滚到版本 {revision['revision_number']}",
+        "plan": updated_plan,
+    }
+
+
 @app.post("/api/plan/{plan_id}/share")
 def api_share_plan(plan_id: str, user: dict = Depends(get_current_user)):
     code = db.generate_share_code(plan_id, user_id=user["id"])
