@@ -648,6 +648,39 @@ async function renderShareMap() {
   }
 }
 
+function renderTimelineImage(item) {
+  // 如果有真实图片，显示图片
+  if (item.image) {
+    return `<img class="timeline-image" src="${item.image}" alt="${item.title || ''}" loading="lazy" onerror="this.style.display='none'">`;
+  }
+  return '';
+}
+
+function getCategoryIcon(item) {
+  // 根据标题或 ID 判断类型，返回小图标
+  const title = (item.title || '').toLowerCase();
+  const itemId = (item.action_item_id || '').toLowerCase();
+  
+  if (title.includes('高铁') || title.includes('飞机') || title.includes('大巴') || title.includes('火车') || itemId.startsWith('transport')) {
+    return '';
+  } else if (title.includes('酒店') || title.includes('入住') || itemId.startsWith('hotel')) {
+    return '🏨';
+  } else if (title.includes('餐') || title.includes('晚宴') || title.includes('午餐') || title.includes('晚餐') || title.includes('早餐') || itemId.startsWith('meal')) {
+    return '';
+  } else if (title.includes('熊猫') || title.includes('基地')) {
+    return '🐼';
+  } else if (title.includes('九寨沟') || title.includes('景区') || title.includes('游览')) {
+    return '️';
+  } else if (title.includes('乐山大佛') || title.includes('寺庙') || title.includes('文化')) {
+    return '🛕';
+  } else if (title.includes('拓展') || title.includes('活动') || title.includes('游戏')) {
+    return '';
+  } else if (title.includes('晚会') || title.includes('表演')) {
+    return '🎭';
+  }
+  return '📍';
+}
+
 function renderPlan(plan) {
   window.currentPlan = plan;
   const city = plan.params?.city || '';
@@ -692,8 +725,8 @@ function renderPlan(plan) {
           <div class="timeline-item">
             <div class="timeline-time">${item.time_range || ''}</div>
             <div class="timeline-content">
-              <h4>${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
-              ${item.image ? `<img class="timeline-image" src="${item.image}" alt="${item.title || ''}" loading="lazy" onerror="this.style.display='none'">` : ''}
+              <h4>${getCategoryIcon(item)} ${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
+              ${renderTimelineImage(item)}
               ${item.notes ? `<p>${item.notes}</p>` : ''}
               ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener"> 飞猪预订/验价</a>` : ''}
               ${renderRestaurantRec(item, i)}
