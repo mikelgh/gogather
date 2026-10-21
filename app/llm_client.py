@@ -198,7 +198,7 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
     for attempt in range(max_retries + 1):
         payload = {**payload_template, "max_tokens": current_max_tokens}
         try:
-            with httpx.Client(timeout=120) as client:
+            with httpx.Client(timeout=300) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()

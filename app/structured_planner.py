@@ -214,7 +214,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 请输出严格的 JSON 格式方案。
 """
 
-    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=6000,
+    result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=4000,
                                 user_id=user_id, plan_id=plan_id, action="generate_structured_plan")
     if not result:
         return _fallback_structured(params, flyai_sections)
@@ -351,7 +351,7 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id
 请根据用户要求修改方案，输出完整的更新后 JSON。
 """
 
-    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000, use_fast_model=True,
+    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=4000, use_fast_model=True,
                                 user_id=user_id, plan_id=plan_id, action="revise_plan")
     if not result:
         return current_plan
