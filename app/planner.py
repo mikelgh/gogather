@@ -11,6 +11,7 @@
   反馈给模型要求其删除）；若仍不合规，则直接回退到飞猪原始数据直出（零编造保证）。
 """
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import flyai_client as flyai
 from . import llm_client as llm
@@ -149,12 +150,14 @@ def build_scenario_text(inp: dict) -> str:
 
 
 def build_sections(inp: dict) -> tuple:
-    """按场景发起若干飞猪查询（优先结构化接口，带出真实价格与预订链接）。
+    """并行发起飞猪查询（优先结构化接口，带出真实价格与预订链接）。
 
     返回 (sections, warnings)：
     - sections: [(标题, 正文), ...]（仅含非空结果）
     - warnings: 查询失败/返回空时的可读提示，便于前端明确报错而非静默装死
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     city = inp.get("city", "")
     check_in = inp.get("check_in", "")
     check_out = inp.get("check_out", "")
@@ -173,78 +176,119 @@ def build_sections(inp: dict) -> tuple:
             return flyai.format_structured(data, limit=limit)
         return (data or "").strip()
 
-    def _call(title: str, result, limit: int = 8):
-        text = _fmt(result, limit=limit)
-        if text:
-            sections.append((title, text))
-        else:
-            status = result.get("status")
-            msg = (result.get("message") or "").strip()
-            warnings.append(
-                f"{title}：飞猪未返回数据（status={status}"
-                + (f"，{msg}" if msg else "")
-                + "）"
-            )
-
-    # 1) 住宿：结构化查询（带日期 → 真实房价 + 预订链接）
-    hotel_opts = {"dest_name": city}
-    if check_in:
-        hotel_opts["check_in_date"] = check_in
-    if check_out:
-        hotel_opts["check_out_date"] = check_out
-    hotel_r = flyai.search_hotel(**hotel_opts)
-    _call("🏨 住宿（含实时房价）", hotel_r, limit=10)
-    if not _fmt(hotel_r):
-        # 结构化查询失败时回退 ai-search
-        q_hotel = f"{city} 适合{group or '团体'}举办活动聚会的酒店"
-        if group:
-            q_hotel += f"（可容纳{group}）"
-        q_hotel += " 含会议室或宴会厅"
+    def _query_hotel():
+        """查询住宿"""
+        hotel_opts = {"dest_name": city}
         if check_in:
-            q_hotel += f" {check_in}入住"
-        if vibe:
-            q_hotel += f" 偏好{vibe}"
-        _call("🏨 住宿（备选）", flyai.ai_search(q_hotel))
-
-    # 2) 玩法 / 景点：结构化查询（带票价 + 跳转链接）
-    poi_r = flyai.search_poi(city_name=city)
-    _call("🎡 玩法（含门票信息）", poi_r, limit=10)
-    if not _fmt(poi_r):
-        q_poi = f"{city} 必玩景点与本地特色玩法"
-        if vibe:
-            q_poi += f" 偏好{vibe}"
-        if mode == "event":
-            q_poi += " 适合团体打卡"
-        _call("🎡 玩法（备选）", flyai.ai_search(q_poi))
-
-    # 3) 美食聚餐 —— 无结构化餐厅接口，走 ai-search（查询词带人均消费，飞猪会返回人均参考价）
-    q_food = f"{city} 适合{group or '团体'}聚餐的特色餐厅 人均消费"
-    if vibe:
-        q_food += f" 偏好{vibe}"
-    _call("🍜 美食聚餐", flyai.ai_search(q_food))
-
-    # 4) 外地出行 → 交通：结构化机票查询（去程+返程，带真实票价）
-    if origin and origin != city:
-        # 去程
-        outbound_opts = {"origin": origin, "destination": city}
-        if check_in:
-            outbound_opts["dep_date"] = check_in
-        outbound_r = flyai.search_flight(**outbound_opts)
-        _call(f"✈️ 去程（{origin}→{city}，含实时票价）", outbound_r, limit=6)
-        if not _fmt(outbound_r):
-            q_f = f"{origin} 到 {city} 机票/高铁"
-            if check_in:
-                q_f += f" {check_in}出发"
-            _call("✈️ 去程（备选）", flyai.ai_search(q_f))
-
-        # 返程
+            hotel_opts["check_in_date"] = check_in
         if check_out:
-            return_opts = {"origin": city, "destination": origin, "dep_date": check_out}
-            return_r = flyai.search_flight(**return_opts)
-            _call(f"✈️ 返程（{city}→{origin}，含实时票价）", return_r, limit=6)
-            if not _fmt(return_r):
-                q_r = f"{city} 到 {origin} 机票/高铁 {check_out}出发"
-                _call("✈️ 返程（备选）", flyai.ai_search(q_r))
+            hotel_opts["check_out_date"] = check_out
+        result = flyai.search_hotel(**hotel_opts)
+        text = _fmt(result, limit=10)
+        
+        if not text:
+            # fallback to ai-search
+            q_hotel = f"{city} 适合{group or '团体'}举办活动聚会的酒店"
+            if group:
+                q_hotel += f"（可容纳{group}）"
+            q_hotel += " 含会议室或宴会厅"
+            if check_in:
+                q_hotel += f" {check_in}入住"
+            if vibe:
+                q_hotel += f" 偏好{vibe}"
+            result = flyai.ai_search(q_hotel)
+            text = _fmt(result, limit=10)
+            title = "🏨 住宿（备选）"
+        else:
+            title = "🏨 住宿（含实时房价）"
+        
+        return (title, text, result)
+
+    def _query_poi():
+        """查询景点"""
+        result = flyai.search_poi(city_name=city)
+        text = _fmt(result, limit=10)
+        
+        if not text:
+            q_poi = f"{city} 必玩景点与本地特色玩法"
+            if vibe:
+                q_poi += f" 偏好{vibe}"
+            if mode == "event":
+                q_poi += " 适合团体打卡"
+            result = flyai.ai_search(q_poi)
+            text = _fmt(result, limit=10)
+            title = "🎡 玩法（备选）"
+        else:
+            title = "🎡 玩法（含门票信息）"
+        
+        return (title, text, result)
+
+    def _query_food():
+        """查询美食"""
+        q_food = f"{city} 适合{group or '团体'}聚餐的特色餐厅 人均消费"
+        if vibe:
+            q_food += f" 偏好{vibe}"
+        result = flyai.ai_search(q_food)
+        text = _fmt(result, limit=8)
+        return ("🍜 美食聚餐", text, result)
+
+    def _query_flight(direction, dep_date):
+        """查询航班"""
+        if direction == "outbound":
+            result = flyai.search_flight(origin=origin, destination=city, dep_date=dep_date)
+            title = f"✈️ 去程（{origin}→{city}，含实时票价）"
+            fallback_q = f"{origin} 到 {city} 机票/高铁"
+            if dep_date:
+                fallback_q += f" {dep_date}出发"
+        else:
+            result = flyai.search_flight(origin=city, destination=origin, dep_date=dep_date)
+            title = f"✈️ 返程（{city}→{origin}，含实时票价）"
+            fallback_q = f"{city} 到 {origin} 机票/高铁"
+            if dep_date:
+                fallback_q += f" {dep_date}出发"
+        
+        text = _fmt(result, limit=6)
+        if not text:
+            result = flyai.ai_search(fallback_q)
+            text = _fmt(result, limit=6)
+            title += "（备选）"
+        
+        return (title, text, result)
+
+    # 准备所有查询任务
+    tasks = [
+        ("hotel", _query_hotel),
+        ("poi", _query_poi),
+        ("food", _query_food),
+    ]
+    
+    if origin and origin != city:
+        tasks.append(("outbound", lambda: _query_flight("outbound", check_in)))
+        if check_out:
+            tasks.append(("return", lambda: _query_flight("return", check_out)))
+
+    # 并行执行所有查询
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_to_name = {executor.submit(task_fn): task_name for task_name, task_fn in tasks}
+        
+        for future in as_completed(future_to_name):
+            task_name = future_to_name[future]
+            try:
+                title, text, result = future.result()
+                if text:
+                    sections.append((title, text))
+                else:
+                    status = result.get("status")
+                    msg = (result.get("message") or "").strip()
+                    warnings.append(
+                        f"{title}：飞猪未返回数据（status={status}"
+                        + (f"，{msg}" if msg else "")
+                        + "）"
+                    )
+            except Exception as e:
+                warnings.append(f"{task_name}：查询异常 - {str(e)}")
+
+    return sections, warnings
 
     return sections, warnings
 

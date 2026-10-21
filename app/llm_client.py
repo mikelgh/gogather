@@ -73,7 +73,7 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000):
+def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False):
     provider = config.LLM_PROVIDER.lower()
     if provider == "minimax":
         if not config.MINIMAX_API_KEY:
@@ -103,8 +103,10 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000):
             "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
             "Content-Type": "application/json",
         }
+        # 根据任务复杂度选择模型
+        model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
         payload = {
-            "model": config.QWEN_MODEL,
+            "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_prompt},
@@ -123,7 +125,7 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000):
         return None
 
 
-def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> dict | None:
+def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False) -> dict | None:
     """调用 LLM 并强制返回 JSON 格式。失败返回 None。"""
     provider = config.LLM_PROVIDER.lower()
     if provider == "minimax":
@@ -153,8 +155,10 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000) 
             "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
             "Content-Type": "application/json",
         }
+        # 根据任务复杂度选择模型
+        model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
         payload = {
-            "model": config.QWEN_MODEL,
+            "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

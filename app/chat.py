@@ -68,7 +68,7 @@ def extract_params(user_message: str, conversation: list[dict] | None = None) ->
         "请提取参数并判断是否足够生成方案。"
     )
 
-    result = _llm.complete_json(system, user_prompt)
+    result = _llm.complete_json(system, user_prompt, use_fast_model=True)
     if not result:
         return {
             "extracted": _fallback_extract(user_message),

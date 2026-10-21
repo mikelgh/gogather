@@ -299,7 +299,7 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str) -> dict
 请根据用户要求修改方案，输出完整的更新后 JSON。
 """
 
-    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000)
+    result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=6000, use_fast_model=True)
     if not result:
         return current_plan
 

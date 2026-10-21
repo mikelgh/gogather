@@ -24,6 +24,7 @@ def get_env(name: str, default: str = "") -> str:
 DASHSCOPE_API_KEY = get_env("DASHSCOPE_API_KEY", "")
 FLYAI_API_KEY = get_env("FLYAI_API_KEY", "")
 QWEN_MODEL = get_env("QWEN_MODEL", "qwen-plus")
+QWEN_MODEL_FAST = get_env("QWEN_MODEL_FAST", "qwen-turbo")
 QWEN_BASE_URL = get_env(
     "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
@@ -40,7 +41,7 @@ MINIMAX_API_KEY = get_env("MINIMAX_API_KEY", "")
 MINIMAX_BASE_URL = get_env("MINIMAX_BASE_URL", "https://api.minimax.cn/v1")
 MINIMAX_MODEL = get_env("MINIMAX_MODEL", "MiniMax-M3")
 
-# LLM 供应商选择：qwen（默认）或 minimax
+# LLM 供应商选择：qwen（默认，百炼）或 minimax
 LLM_PROVIDER = get_env("LLM_PROVIDER", "qwen")
 
 
