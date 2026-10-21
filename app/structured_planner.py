@@ -95,6 +95,11 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 12. **禁止在 notes/description 中写原始链接**：所有预订链接必须放在 `booking_link` 字段，notes 和 description 中不得出现 `http://` 或 `https://` 开头的 URL。若需引用多个链接（如景点 + 寺庙），只保留主链接在 booking_link，notes 中用文字说明（如"含灵隐寺门票"）
 13. **景点门票必须使用飞猪数据**：若飞猪结果中景点包含「票价：门票¥XX；游船¥XX」等信息，必须在 timeline 中显示具体票价，并按实际行程安排（如"游览西湖+乘游船"）将对应费用计入预算。禁止忽略已有的票价数据。
 14. **价格类型必须匹配**：酒店房价（如¥446/晚）只能挂在住宿类 action_item 上，禁止挂在自由活动、景点游览、餐饮等非住宿项。自由活动/无收费项目的 price 必须填"免费"或"无费用"，estimated_cost 留空。
+15. **不可预订项目禁止附带链接**：booking_link 只能填飞猪结果中**同一个具体商家**的链接（指名道姓的酒店、餐厅、车次/航班、景点）。以下情况 booking_link 必须填 null，禁止从飞猪结果复制无关链接凑数：
+   - 车上/自备早餐、集合签到、自由活动、酒店内用餐等没有真实预订对象的项目
+   - 模糊推荐（如"周边中档餐厅""附近用餐""活动片区周边"），飞猪结果中没有对应的具体商家
+   - 飞猪结果明确未返回该类数据（如餐厅数据缺失）
+   此类项目 price 可填估算金额或"免费"。
 """
 
 
@@ -186,7 +191,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 
 硬性要求：
 0. **summary 必须包含所有关键信息**：{group_size}人、{origin}→{city}、{check_in}至{check_out}、交通方式（{origin}出发的交通类型）、活动类型（{params.get('activity_type', '聚会')}）、预算档次（{budget_tier}）
-1. action_items 与 timeline 中的每个项目都必须带上飞猪结果里的「预订链接」原文
+1. 只有飞猪结果中有对应具体商家的项目（酒店、餐厅、车次/航班、景点）才带该商家的「预订链接」原文；无对应数据的项目 booking_link 填 null
 2. price / estimated_cost 必须优先使用飞猪结果中的真实价格（如「价格: ¥554」）
 3. **若飞猪结果无价格**：timeline.price 填"点击预订链接查看实时价格"，budget 中该项不计入总额但 description 注明"需通过预订链接确认价格"
 4. 预算必须计算：住宿 = 房价×房间数×晚数（房间数=人数÷2 向上取整）、去程交通 = 去程单价×{group_size}人、返程交通 = 返程单价×{group_size}人（若两段都有价格）、门票 = 单价×{group_size}人；餐饮若无价格，按飞猪结果描述定性并标注
@@ -201,6 +206,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
    - 若交通在 Day 1 晚上出发、Day 2 早上到达，则 Day 1 的活动应安排在出发地（{origin}）或省略
    - Day 2 及之后的活动才能安排在目的地（{city}）
    - 退房日（{check_out}）的活动必须在退房时间之后安排
+10. **不可预订项目禁止附带链接**：车上/自备早餐、集合签到、自由活动、模糊推荐（如"周边中档餐厅"）等没有飞猪具体商家对应的项目，booking_link 必须填 null，禁止复制无关链接凑数
 请输出严格的 JSON 格式方案。
 """
 
