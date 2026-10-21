@@ -136,7 +136,7 @@ body {
   max-width: 800px;
   margin: 0;
   padding: 24px;
-  padding-bottom: 120px;
+  padding-bottom: 320px;
 }
 
 /* ── Animations ────────────────────────────────────────── */
@@ -1779,7 +1779,7 @@ body {
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 640px) {
   .header { padding: 10px 16px; }
-  .container { padding: 16px; padding-bottom: 140px; }
+  .container { padding: 16px; padding-bottom: 360px; }
   .welcome-card { padding: 24px 16px 20px; border-radius: var(--radius-lg); }
   .welcome-card h1 { font-size: 20px; }
   .welcome-card p { font-size: 12px; }
@@ -2664,6 +2664,12 @@ function startOver() {
 }
 
 // ── Chat ──────────────────────────────────────────────────
+function scrollChatToBottom() {
+  // 真正的滚动容器是 .main-content，#chatMessages 本身不可滚动
+  const scroller = document.querySelector('.main-content');
+  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+}
+
 function addMessage(role, content, params = null) {
   const messages = document.getElementById('chatMessages');
   const div = document.createElement('div');
@@ -2692,7 +2698,7 @@ function addMessage(role, content, params = null) {
     <div class="message-content">${content}${paramsHtml}</div>
   `;
   messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+  scrollChatToBottom();
 }
 
 function showTypingIndicator(message = '正在思考...') {
@@ -2712,7 +2718,7 @@ function showTypingIndicator(message = '正在思考...') {
     <div class="typing-message" style="font-size:13px;color:var(--text-secondary);padding:16px 0;">${message}</div>
   `;
   messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+  scrollChatToBottom();
 }
 
 function updateTypingIndicator(message) {
@@ -2776,7 +2782,7 @@ function showTransportQuickReply() {
     </div>
   `;
   messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+  scrollChatToBottom();
 }
 
 function sendTransportChoice(text, mode) {
@@ -2878,10 +2884,11 @@ async function sendMessage() {
       addMessage('assistant', data.message, data.extracted_params);
       state.conversation.push({ role: 'assistant', content: data.message });
 
-      // 如果追问涉及交通方式，显示快捷选择按钮
-      const transportKeywords = ['交通', '飞机', '高铁', '动车', '火车', '航班', '偏好'];
-      if (transportKeywords.some(kw => data.message.includes(kw))) {
+      // 交通方式处理：近/远距离后端已自动推荐，直接应用；仅中距离需要用户选择
+      if (data.transport_suggested === 'ask') {
         showTransportQuickReply();
+      } else if (data.transport_suggested === 'train' || data.transport_suggested === 'flight') {
+        selectTransportMode(data.transport_suggested);
       }
     } else if (data.type === 'plan_ready') {
       state.plan = data.plan;

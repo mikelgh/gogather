@@ -476,9 +476,9 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Save user message to conversation history
     db.save_conversation(user["id"], "user", req.message)
 
-    # 传递 UI 已选择的参数给 LLM，避免重复追问
+    # 传递 UI 已选择的参数给 LLM，避免重复追问（预算始终传递，即使是默认值舒适型）
     ui_selected = {
-        "budget_tier": req.budget_tier if req.budget_tier != "舒适型" else None,
+        "budget_tier": req.budget_tier,
         "transport_mode": req.transport_mode if req.transport_mode != "auto" else None,
         "preferences": req.preferences if req.preferences else None,
     }
@@ -542,11 +542,19 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
 
     # Save follow-up question
     db.save_conversation(user["id"], "assistant", follow_up)
+    # 根据距离给出交通推荐：近距离直接推荐火车/飞机，中距离才需要用户选择
+    transport_suggested = None
+    _origin = extracted.get("origin")
+    _city = extracted.get("city")
+    if _origin and _city and _origin != _city:
+        from . import transport as transport_mod
+        transport_suggested = transport_mod.recommend_transport(_origin, _city)["suggested"]
     return {
         "type": "follow_up",
         "message": follow_up,
         "extracted_params": extracted,
         "sufficient": False,
+        "transport_suggested": transport_suggested,
     }
 
 
