@@ -76,6 +76,22 @@
   box-shadow: var(--shadow-sm);
 }
 
+.nav-guide-link {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.nav-guide-link:hover {
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
 /* ── Main Container ────────────────────────────────────── */
 .container {
   max-width: 800px;
@@ -168,6 +184,24 @@
   position: relative;
   z-index: 1;
 }
+
+.welcome-card-sub {
+  position: relative;
+  z-index: 1;
+  font-size: 13.5px;
+  opacity: 0.9;
+  margin-top: 10px;
+}
+
+.welcome-card-sub a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 600;
+  transition: opacity 0.2s;
+}
+
+.welcome-card-sub a:hover { opacity: 0.75; }
 
 .welcome-card.hidden {
   max-height: 0;
@@ -2199,6 +2233,7 @@
       <button class="nav-tab active" data-view="chat" onclick="switchView('chat')" data-copy="nav.planTab" data-copy-fallback="策划">策划</button>
       <button class="nav-tab" data-view="execution" onclick="switchView('execution')" data-copy="nav.execTab" data-copy-fallback="实施">实施</button>
     </nav>
+    <a class="nav-guide-link" href="/guide" target="_blank" rel="noopener" data-copy="guide.navEntry">使用指南</a>
     <div class="user-menu-wrapper" id="userMenuWrapper" style="display:none;">
       <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()"></div>
       <div class="user-dropdown hidden" id="userDropdown">
@@ -2243,6 +2278,7 @@
   <div class="chat-view" id="chatView">
     <div class="welcome-card" id="welcomeCard">
       <h1>说一场活动，我来安排</h1>
+      <div class="welcome-card-sub">不知道怎么描述？<a href="/guide" target="_blank" rel="noopener" data-copy="guide.entryHint">看看使用指南</a></div>
     </div>
 
     <div class="chat-messages" id="chatMessages"></div>

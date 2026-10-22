@@ -104,6 +104,11 @@ window.COPY = {
     nicknameInvalid: '昵称需为 2-20 位中英文、数字、下划线、点或减号',
   },
 
+  guide: {
+    navEntry: '使用指南',
+    entryHint: '看看使用指南',
+  },
+
   auth: {
     welcomeTitle: '欢迎使用 GoGather 聚行',
     welcomeSub: '登录后即可开始规划你的活动出行',

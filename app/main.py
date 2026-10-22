@@ -311,6 +311,15 @@ def admin_page():
     return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
 
 
+@app.get("/guide")
+def guide_page():
+    """功能说明页：公开可访问，未登录也能看。"""
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "guide.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 # ── 诊断 ──────────────────────────────────────────────────
 
 @app.get("/api/health")
