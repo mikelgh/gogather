@@ -703,7 +703,7 @@ function renderPlan(plan) {
   const checkIn = plan.params?.check_in || '';
   const checkOut = plan.params?.check_out || '';
   const dateRange = checkIn && checkOut ? `${checkIn.slice(5)} ~ ${checkOut.slice(5)}` : '';
-  const groupSize = plan.params?.group_size || '';
+  const groupSize = String(plan.params?.group_size || '').replace(/\D/g, '');
 
   // 更新 OpenGraph meta 标签
   const origin = plan.params?.origin || '';

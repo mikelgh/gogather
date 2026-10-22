@@ -331,12 +331,29 @@ def generate_share_code(plan_id: str, user_id: str | None = None) -> str | None:
 def list_plans(user_id: str) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT id, user_id, created_at, updated_at, phase, original_input, summary, share_code "
+        "SELECT id, user_id, created_at, updated_at, phase, original_input, params, summary, share_code "
         "FROM plans WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
         (user_id,),
     ).fetchall()
     conn.close()
-    return [_row_to_dict(r) for r in rows]
+    plans = [_row_to_dict(r) for r in rows]
+    for p in plans:
+        # 方案名按参数推导：多轮调整后 original_input 可能变成"第三天换个景点"
+        p["name"] = build_plan_name(p.get("params") or {}, p.get("original_input", ""))
+    return plans
+
+
+def build_plan_name(params: dict, fallback: str = "") -> str:
+    """按方案参数生成简短名称，如「30人 广州→上海及周边城市 同学聚会」。"""
+    import re
+
+    city = (params.get("city") or "").strip()
+    origin = (params.get("origin") or "").strip()
+    size = re.sub(r"\D", "", str(params.get("group_size") or ""))
+    activity = (params.get("activity_type") or "").strip()
+    route = f"{origin}→{city}" if origin and origin != city else city
+    name = " ".join(p for p in [f"{size}人" if size else "", route, activity] if p)
+    return name or (fallback[:20] if fallback else "未命名方案")
 
 
 # ── Conversations ────────────────────────────────────────

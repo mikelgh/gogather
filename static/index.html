@@ -2556,14 +2556,14 @@ async function loadPlanList() {
       const date = new Date(p.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
       const params = p.params || {};
       const city = params.city || '';
-      const group = params.group_size ? `${params.group_size}人` : '';
+      const group = String(params.group_size || '').replace(/\D/g, '');
       const dates = params.check_in && params.check_out ? `${params.check_in.slice(5)}~${params.check_out.slice(5)}` : '';
       const origin = params.origin ? `从${params.origin}出发` : '';
       const vibe = params.vibe || '';
       const budgetTier = params.budget_tier || '';
       const transportIcons = { flight: '✈️', train: '🚄', auto: '' };
       const transportLabel = params.origin && params.transport_mode ? (transportIcons[params.transport_mode] || '') : '';
-      const title = [city, group].filter(Boolean).join(' ') || p.original_input?.slice(0, 20) || '未命名方案';
+      const title = p.name || [city, group ? `${group}人` : ''].filter(Boolean).join(' ') || p.original_input?.slice(0, 20) || '未命名方案';
       const meta = [dates, origin + transportLabel, vibe, budgetTier].filter(Boolean).join(' · ');
       return `
         <li class="plan-list-item${isActive ? ' active' : ''}">

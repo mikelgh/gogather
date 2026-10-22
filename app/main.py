@@ -630,6 +630,14 @@ def api_plan(req: PlanRequest, user: dict = Depends(get_current_user)):
 
 # ── 对话式规划 ────────────────────────────────────────────
 
+def _first_user_message(conversation: list, default: str) -> str:
+    """取会话中第一条用户消息，作为方案的原始诉求。"""
+    for m in conversation or []:
+        if m.get("role") == "user" and m.get("content"):
+            return m["content"]
+    return default
+
+
 def _build_plan_ready(extracted: dict, original_message: str, conversation: list,
                       user_id: str, outline: dict | None = None) -> dict:
     """跑完整生成链路（flyai → 结构化方案）并落库，返回 plan_ready 响应。"""
@@ -648,7 +656,8 @@ def _build_plan_ready(extracted: dict, original_message: str, conversation: list
         "created_at": now,
         "updated_at": now,
         "phase": "planning",
-        "original_input": original_message,
+        # 存用户最初的诉求，而不是大纲调整轮里的最后一句（如"第三天换个景点"）
+        "original_input": _first_user_message(conversation, original_message),
         "conversation": conversation + [
             {"role": "user", "content": original_message},
             {"role": "assistant", "content": "方案已生成"},
