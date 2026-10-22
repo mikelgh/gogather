@@ -55,6 +55,14 @@ class ChatRequest(BaseModel):
     preferences: list[str] = Field(default_factory=list)
 
 
+class GeneratePlanRequest(BaseModel):
+    """用户确认行程大纲后，按确认框架生成正式方案的请求。"""
+    message: str
+    params: dict = Field(default_factory=dict)
+    outline: dict | None = None
+    conversation: list[dict] = Field(default_factory=list)
+
+
 class TaskUpdateRequest(BaseModel):
     status: str
 
@@ -622,6 +630,54 @@ def api_plan(req: PlanRequest, user: dict = Depends(get_current_user)):
 
 # ── 对话式规划 ────────────────────────────────────────────
 
+def _build_plan_ready(extracted: dict, original_message: str, conversation: list,
+                      user_id: str, outline: dict | None = None) -> dict:
+    """跑完整生成链路（flyai → 结构化方案）并落库，返回 plan_ready 响应。"""
+    from . import structured_planner
+    plan_input = chat_mod.params_to_plan_input(extracted)
+    plan_result = planner.plan(plan_input)
+
+    sections = [(s["title"], s["data"]) for s in plan_result.get("sections", [])]
+    now = datetime.now().isoformat()
+    plan_id = str(uuid.uuid4())[:12]
+    structured = structured_planner.generate_structured_plan(
+        extracted, sections, user_id=user_id, plan_id=plan_id, outline=outline)
+    plan_dict = {
+        "id": plan_id,
+        "user_id": user_id,
+        "created_at": now,
+        "updated_at": now,
+        "phase": "planning",
+        "original_input": original_message,
+        "conversation": conversation + [
+            {"role": "user", "content": original_message},
+            {"role": "assistant", "content": "方案已生成"},
+        ],
+        "params": extracted,
+        "summary": structured.get("summary", plan_result.get("markdown", "")[:200]),
+        "action_items": structured.get("action_items", []),
+        "timeline": structured.get("timeline", []),
+        "budget": structured.get("budget", []),
+        "room_allocation": structured.get("room_allocation", []),
+        "budget_per_person": structured.get("budget_per_person"),
+        "share_code": None,
+        "members": [],
+        "markdown": plan_result.get("markdown", ""),
+        "warnings": plan_result.get("warnings", []),
+        "used_llm": plan_result.get("used_llm", False),
+    }
+    db.save_plan(plan_dict)
+    db.save_conversation(user_id, "assistant", "方案已生成")
+    return {
+        "type": "plan_ready",
+        "message": "方案已生成！",
+        "extracted_params": extracted,
+        "plan_id": plan_id,
+        "plan": plan_result,
+        "structured": structured,
+    }
+
+
 @app.post("/api/chat")
 def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Save user message to conversation history
@@ -649,49 +705,28 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         extracted["preferences"] = req.preferences
 
     if sufficient:
+        # 先用快速模型出行程大纲供用户确认；确认后由 /api/generate_plan 正式生成。
+        # 大纲生成失败时回退为直接生成（不阻塞主流程）。
         from . import structured_planner
-        plan_input = chat_mod.params_to_plan_input(extracted)
-        plan_result = planner.plan(plan_input)
-
-        sections = [(s["title"], s["data"]) for s in plan_result.get("sections", [])]
-        now = datetime.now().isoformat()
-        plan_id = str(uuid.uuid4())[:12]
-        structured = structured_planner.generate_structured_plan(extracted, sections, user_id=user["id"], plan_id=plan_id)
-        plan_dict = {
-            "id": plan_id,
-            "user_id": user["id"],
-            "created_at": now,
-            "updated_at": now,
-            "phase": "planning",
-            "original_input": req.message,
-            "conversation": req.conversation + [
-                {"role": "user", "content": req.message},
-                {"role": "assistant", "content": "方案已生成"},
-            ],
-            "params": extracted,
-            "summary": structured.get("summary", plan_result.get("markdown", "")[:200]),
-            "action_items": structured.get("action_items", []),
-            "timeline": structured.get("timeline", []),
-            "budget": structured.get("budget", []),
-            "room_allocation": structured.get("room_allocation", []),
-            "budget_per_person": structured.get("budget_per_person"),
-            "share_code": None,
-            "members": [],
-            "markdown": plan_result.get("markdown", ""),
-            "warnings": plan_result.get("warnings", []),
-            "used_llm": plan_result.get("used_llm", False),
-        }
-        db.save_plan(plan_dict)
-        # Save assistant response
-        db.save_conversation(user["id"], "assistant", "方案已生成")
-        return {
-            "type": "plan_ready",
-            "message": "方案已生成！",
-            "extracted_params": extracted,
-            "plan_id": plan_id,
-            "plan": plan_result,
-            "structured": structured,
-        }
+        try:
+            outline = structured_planner.generate_outline(
+                extracted, conversation=req.conversation, user_id=user["id"])
+        except Exception:
+            outline = None
+        if outline:
+            outline_text = structured_planner.outline_to_text(outline)
+            db.save_conversation(user["id"], "assistant", outline_text)
+            return {
+                "type": "outline_proposal",
+                "message": outline_text,
+                "outline": outline,
+                "extracted_params": extracted,
+            }
+        return _build_plan_ready(
+            extracted, req.message,
+            req.conversation + [{"role": "user", "content": req.message}],
+            user["id"],
+        )
 
     # Save follow-up question
     db.save_conversation(user["id"], "assistant", follow_up)
@@ -709,6 +744,21 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         "sufficient": False,
         "transport_suggested": transport_suggested,
     }
+
+
+@app.post("/api/generate_plan")
+def api_generate_plan(req: GeneratePlanRequest, user: dict = Depends(get_current_user)):
+    """用户确认行程大纲后，按确认的框架生成正式方案。"""
+    extracted = dict(req.params)
+    if not extracted.get("budget_tier"):
+        extracted["budget_tier"] = "舒适型"
+    if not extracted.get("transport_mode"):
+        extracted["transport_mode"] = "auto"
+    return _build_plan_ready(
+        extracted, req.message,
+        req.conversation + [{"role": "user", "content": req.message}],
+        user["id"], outline=req.outline,
+    )
 
 
 # ── 方案检索与实施跟踪 ────────────────────────────────────

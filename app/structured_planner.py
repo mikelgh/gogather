@@ -5,6 +5,33 @@ import re
 from . import flyai_client as flyai
 from . import llm_client as _llm
 
+OUTLINE_SYSTEM = """你是团体出行行程大纲规划师。根据用户参数生成简要行程框架，供用户确认后再生成完整方案。
+
+要求：
+1. 只输出行程框架：每天的主题与上午/下午/晚上安排，不要价格、酒店品牌、航班号等落地细节。
+2. 天数根据入住/退房日期推断；未提供日期时按 2 天 1 晚规划，并在 summary 注明"暂按2天1晚"。
+3. 景点/活动必须真实存在，贴合城市、人群类型（团建/同学聚会/亲子等）与人数规模；餐饮写安排形式（如"特色欢迎晚宴""景区周边团餐"）。
+4. 交通项写"出发地→目的地"形式即可，不写具体班次。
+5. 每天约 3 条安排，强度均衡，同一天的活动地点尽量相近。
+6. 若最近对话中已有此前的大纲且用户提出调整，基于原大纲修改，不要整体重写。
+
+严格返回 JSON（不要 markdown 代码块）：
+{
+    "summary": "一句话概述（含人数、出发地→目的地、天数）",
+    "days": [
+        {
+            "day": 1,
+            "theme": "当天主题（如：抵达+城市文化）",
+            "items": [
+                {"slot": "上午", "title": "安排内容", "type": "交通"},
+                {"slot": "下午", "title": "安排内容", "type": "活动"},
+                {"slot": "晚上", "title": "安排内容", "type": "餐饮"}
+            ]
+        }
+    ]
+}
+"""
+
 STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助手。基于飞猪 AI 搜索结果，生成结构化的 JSON 方案。
 
 输出严格遵循以下 JSON 格式（不要 markdown 代码块）：
@@ -107,7 +134,43 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 """
 
 
-def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = None, plan_id: str = None) -> dict:
+def _conversation_text(conversation: list | None, limit: int = 6) -> str:
+    if not conversation:
+        return ""
+    msgs = []
+    for m in conversation[-limit:]:
+        role = "用户" if m.get("role") == "user" else "助手"
+        msgs.append(f"{role}：{m.get('content', '')}")
+    return "\n".join(msgs)
+
+
+def generate_outline(params: dict, conversation: list | None = None, user_id: str = None) -> dict | None:
+    """用快速模型生成行程大纲（供用户确认；确认后作为硬约束生成正式方案）。失败返回 None。"""
+    user_prompt = (
+        f"用户参数：{json.dumps(params, ensure_ascii=False)}\n\n"
+        + (_conversation_text(conversation) + "\n\n" if conversation else "")
+        + "请生成行程大纲。"
+    )
+    result = _llm.complete_json(OUTLINE_SYSTEM, user_prompt, max_tokens=2000, use_fast_model=True,
+                                user_id=user_id, action="generate_outline")
+    if not result or not isinstance(result.get("days"), list) or not result["days"]:
+        return None
+    if not all(isinstance(d.get("items"), list) and d["items"] for d in result["days"]):
+        return None
+    return result
+
+
+def outline_to_text(outline: dict) -> str:
+    """大纲转简要文本（用于对话历史与前端消息）。"""
+    lines = [outline.get("summary", "行程大纲")]
+    for d in outline.get("days", []):
+        items = "；".join(f"{it.get('slot', '')}{it.get('title', '')}" for it in d.get("items", []))
+        lines.append(f"D{d.get('day', '')} {d.get('theme', '')}：{items}")
+    return "\n".join(lines)
+
+
+def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = None, plan_id: str = None,
+                             outline: dict | None = None) -> dict:
     """基于飞猪查询结果生成结构化方案。
 
     Args:
@@ -115,6 +178,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
         flyai_sections: [(title, data), ...] 飞猪查询结果
         user_id: 用户ID（用于追踪 AI 使用量）
         plan_id: 方案ID（用于追踪 AI 使用量）
+        outline: 用户确认的行程大纲（硬约束，可选）
 
     Returns:
         结构化方案 dict
@@ -186,11 +250,21 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
     if transport_schedule:
         scenario += f"交通时间：\n{transport_schedule}"
 
+    # 用户确认过的大纲作为硬约束
+    outline_constraint = ""
+    if outline and outline.get("days"):
+        outline_constraint = (
+            "==== 用户已确认的行程框架（硬约束） ====\n"
+            + json.dumps(outline, ensure_ascii=False, indent=1)
+            + "\n天数、每天主题与主要安排必须与该框架一致，禁止增删天数或更换主要景点/活动；"
+              "你只需为各时段落实具体的酒店、餐厅、航班/车次、门票与价格等细节。\n\n"
+        )
+
     user_prompt = f"""
 请基于以下飞猪 AI 搜索结果，为{group_size}人的{city}聚会生成结构化方案。
 
 ==== 用户场景 ===={scenario}
-==== 飞猪搜索结果（每条含真实价格与预订链接） ===={flyai_text}
+{outline_constraint}==== 飞猪搜索结果（每条含真实价格与预订链接） ===={flyai_text}
 ==== 飞猪结果结束 ====
 
 硬性要求：

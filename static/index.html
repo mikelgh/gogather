@@ -517,6 +517,29 @@ body {
   animation: fadeIn 0.3s ease;
 }
 
+.outline-card {
+  margin: 12px 0 12px 40px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  max-width: 480px;
+  animation: fadeIn 0.3s ease;
+}
+.outline-card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.outline-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; }
+.outline-day { margin-bottom: 10px; }
+.outline-day-title { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+.outline-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 0; line-height: 1.4; }
+.outline-slot { color: var(--text-muted); flex-shrink: 0; width: 32px; }
+.outline-item-title { flex: 1; min-width: 0; }
+.outline-type { font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; flex-shrink: 0; }
+.outline-actions { margin-top: 12px; }
+.outline-confirm-btn { width: 100%; padding: 10px; background: var(--primary); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+.outline-confirm-btn:hover { opacity: 0.9; }
+.outline-confirm-btn:disabled { opacity: 0.6; cursor: default; }
+.outline-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+
 .transport-quick-label {
   font-size: 13px;
   color: var(--text-muted);
@@ -2836,6 +2859,8 @@ function startOver() {
   state.structured = {};
   state.conversation = [];
   state.extractedParams = {};
+  state.pendingOutline = null;
+  state.pendingMessage = '';
   localStorage.removeItem('juxing_planId');
   document.getElementById('chatMessages').innerHTML = '';
   document.getElementById('shareResult').style.display = 'none';
@@ -2959,6 +2984,88 @@ function selectTransportMode(mode) {
   document.querySelectorAll('.transport-mode-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
+}
+
+// ── 行程大纲确认 ──────────────────────────────────────────
+function showOutlineCard(outline) {
+  const messages = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'outline-card';
+  const daysHtml = (outline.days || []).map(d => `
+    <div class="outline-day">
+      <div class="outline-day-title">D${d.day} · ${d.theme || ''}</div>
+      ${(d.items || []).map(it => `
+        <div class="outline-item">
+          <span class="outline-slot">${it.slot || ''}</span>
+          <span class="outline-item-title">${it.title || ''}</span>
+          <span class="outline-type">${it.type || ''}</span>
+        </div>`).join('')}
+    </div>`).join('');
+  div.innerHTML = `
+    <div class="outline-card-title">📋 行程大纲 · 确认后开始生成完整方案</div>
+    ${outline.summary ? `<div class="outline-summary">${outline.summary}</div>` : ''}
+    ${daysHtml}
+    <div class="outline-actions">
+      <button class="outline-confirm-btn" onclick="confirmOutline()">✅ 按此生成完整方案</button>
+    </div>
+    <div class="outline-hint">如需调整，直接输入修改意见（如"第二天换个景点"），我会重新出大纲</div>
+  `;
+  messages.appendChild(div);
+  scrollChatToBottom();
+}
+
+async function confirmOutline() {
+  if (!state.pendingOutline || state.isSending) return;
+  const btn = document.querySelector('.outline-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '正在生成完整方案…'; }
+  state.isSending = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTypingIndicator('正在查询飞猪实时价格...');
+  const progressMessages = ['正在搜索酒店...', '正在查找景点和活动...', '正在生成方案...', '正在计算预算...'];
+  let progressIdx = 0;
+  const progressTimer = setInterval(() => {
+    if (progressIdx < progressMessages.length) {
+      updateTypingIndicator(progressMessages[progressIdx]);
+      progressIdx++;
+    }
+  }, 8000);
+  try {
+    const resp = await authFetch('/api/generate_plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: state.pendingMessage || '',
+        params: state.extractedParams,
+        outline: state.pendingOutline,
+        conversation: state.conversation.slice(-6),
+      }),
+    });
+    clearInterval(progressTimer);
+    hideTypingIndicator();
+    const data = await resp.json();
+    if (data.type === 'plan_ready') {
+      state.pendingOutline = null;
+      state.plan = data.plan;
+      state.structured = data.structured || {};
+      state.planId = data.plan_id;
+      state.extractedParams = data.extracted_params;
+      localStorage.setItem('juxing_planId', data.plan_id);
+      addMessage('assistant', '方案已生成！点击下方查看详细内容。');
+      showToast('方案已生成', 'success');
+      showPlan(data.plan, data.plan_id, data.structured);
+      loadPlanList();
+    } else {
+      addMessage('assistant', '方案生成失败，请重试');
+    }
+  } catch (err) {
+    clearInterval(progressTimer);
+    hideTypingIndicator();
+    addMessage('assistant', '出错了，请重试：' + err.message);
+    showToast('请求失败', 'error');
+  } finally {
+    state.isSending = false;
+    document.getElementById('sendBtn').disabled = false;
+  }
 }
 
 function showTransportQuickReply() {
@@ -3092,6 +3199,12 @@ async function sendMessage() {
       showToast('方案已生成', 'success');
       showPlan(data.plan, data.plan_id, data.structured);
       loadPlanList();
+    } else if (data.type === 'outline_proposal') {
+      state.extractedParams = { ...state.extractedParams, ...data.extracted_params };
+      state.pendingOutline = data.outline;
+      state.pendingMessage = message;
+      state.conversation.push({ role: 'assistant', content: data.message });
+      showOutlineCard(data.outline);
     }
   } catch (err) {
     clearInterval(progressTimer);
