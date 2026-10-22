@@ -2443,7 +2443,9 @@ async function loadConversations() {
 }
 
 async function restorePlan() {
-  let planId = localStorage.getItem('juxing_planId');
+  // 全屏地图页"返回方案页"通过 ?plan=<id> 精确恢复对应方案
+  const urlPlanId = new URLSearchParams(window.location.search).get('plan');
+  let planId = urlPlanId || localStorage.getItem('juxing_planId');
   if (!planId) {
     // 没有 planId 时，加载最近的方案
     try {
@@ -2481,6 +2483,7 @@ async function restorePlan() {
       };
       state.extractedParams = plan.params || {};
       localStorage.setItem('juxing_planId', planId);
+      if (urlPlanId) history.replaceState(null, '', '/');
       showPlan(plan, planId, state.structured);
     } else {
       localStorage.removeItem('juxing_planId');
@@ -2645,6 +2648,9 @@ async function handleAuth(e) {
     document.getElementById('authModal').classList.add('hidden');
     showUserMenu();
     showToast(state.authMode === 'login' ? '登录成功' : '注册成功', 'success');
+    await loadConversations();
+    await restorePlan();
+    await loadPlanList();
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -2792,7 +2798,7 @@ async function renderMap() {
     const shareCode = (state.plan && state.plan.share_code) || '';
     planMapInstance = GoGatherMap.create(container, points, {
       listId: 'mapLocationList',
-      fullscreenUrl: shareCode ? `/map/${shareCode}` : '',
+      fullscreenUrl: shareCode ? `/map/${shareCode}?from=plan&plan=${encodeURIComponent(state.planId)}` : '',
     });
   } catch (err) {
     console.error('Map render failed:', err);

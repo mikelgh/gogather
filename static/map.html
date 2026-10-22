@@ -151,8 +151,17 @@
       document.getElementById('emptyState').style.display = 'flex';
       return;
     }
-    document.getElementById('backLink').href = `/share/${code}`;
-    document.getElementById('backLink').style.display = 'inline-flex';
+    // 返回链接按来源区分：方案页打开（?from=plan&plan=<id>）回方案页，其余回分享页
+    const urlParams = new URLSearchParams(window.location.search);
+    const backLink = document.getElementById('backLink');
+    if (urlParams.get('from') === 'plan' && urlParams.get('plan')) {
+      backLink.href = `/?plan=${encodeURIComponent(urlParams.get('plan'))}`;
+      backLink.textContent = '← 返回方案页';
+    } else {
+      backLink.href = `/share/${code}`;
+      backLink.textContent = '← 返回分享页';
+    }
+    backLink.style.display = 'inline-flex';
     try {
       const resp = await fetch(`/api/share/${code}/map`);
       if (!resp.ok) throw new Error('加载失败');
