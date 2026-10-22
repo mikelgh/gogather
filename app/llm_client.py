@@ -1,6 +1,9 @@
-"""百炼 / 通义千问（OpenAI 兼容接口）封装。
+"""百炼 / 通义千问（OpenAI 兼容接口）封装，支持主备供应商自动切换。
 
-可选层：未配置 DASHSCOPE_API_KEY 时返回 None，由编排层降级为模板拼接。
+主供应商由 LLM_PROVIDER 指定（默认百炼 qwen）；另一家（minimax）配置了密钥时
+作为备用：主供应商请求失败（限流/超时/5xx/重试穷尽）后自动切换，并在故障后
+进入 60 秒冷却，避免连续撞击限流。
+未配置任何密钥时返回 None，由编排层降级为模板拼接。
 按场景（event 聚会 / explore 探索）给出不同结构的润色提示，强化聚行的差异化。
 
 【数据真实性纪律】本助手的核心约束：LLM 只能「组织与呈现」飞猪 AI 搜索返回的
@@ -10,12 +13,17 @@
 """
 import json as _json
 import logging
+import time
 
 import httpx
 
 from . import config
 
 log = logging.getLogger(__name__)
+
+# 供应商故障冷却：某供应商整轮失败后，短时间内把它排到链尾，避免连续撞限流
+_PROVIDER_COOLDOWN: dict[str, float] = {}
+_COOLDOWN_SECONDS = 60
 
 # ── 两个场景共用的「数据纪律」硬约束 ──────────────────────────
 _DATA_DISCIPLINE = """\
@@ -73,13 +81,12 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False,
-             user_id: str = None, plan_id: str = None, action: str = "complete"):
-    provider = config.LLM_PROVIDER.lower()
+def _build_payload(provider: str, *, system: str, user_prompt: str, max_tokens: int,
+                   use_fast_model: bool, temperature: float, json_mode: bool):
+    """构造供应商请求。返回 (url, headers, payload)；密钥未配置返回 None。"""
     if provider == "minimax":
         if not config.MINIMAX_API_KEY:
             return None
-        system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
         url = config.MINIMAX_BASE_URL.rstrip("/") + "/chat/completions"
         headers = {
             "Authorization": f"Bearer {config.MINIMAX_API_KEY}",
@@ -92,153 +99,144 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": max_tokens,
-            "temperature": 0.2,
+            "temperature": temperature,
             "thinking": {"type": "disabled"},
         }
-    else:  # qwen (default)
-        if not config.DASHSCOPE_API_KEY:
-            return None
-        system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
-        url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        # 根据任务复杂度选择模型
-        model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_prompt},
-            ],
-            "max_tokens": max_tokens,
-            "temperature": 0.2,
-        }
-    try:
-        with httpx.Client(timeout=180) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        return url, headers, payload
 
-        # Record AI usage if user_id provided
-        if user_id and "usage" in data:
-            try:
-                from . import database as db
-                usage = data["usage"]
-                model_name = payload.get("model", "unknown")
-                # Estimate cost: ~0.002 per 1K tokens for qwen-turbo, ~0.008 for qwen-plus
-                cost_per_1k = 0.002 if "turbo" in model_name or "fast" in model_name else 0.008
-                total_tokens = usage.get("total_tokens", 0)
-                estimated_cost = (total_tokens / 1000.0) * cost_per_1k
-
-                db.record_ai_usage(
-                    user_id=user_id,
-                    action=action,
-                    model=model_name,
-                    prompt_tokens=usage.get("prompt_tokens", 0),
-                    completion_tokens=usage.get("completion_tokens", 0),
-                    plan_id=plan_id,
-                    cost=estimated_cost,
-                )
-            except Exception as e:
-                log.warning("Failed to record AI usage: %s", e)
-
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        log.warning("LLM complete failed (%s): %s: %s", provider, type(e).__name__, e)
+    # qwen（百炼，默认）
+    if not config.DASHSCOPE_API_KEY:
         return None
+    model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
+    url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    return url, headers, payload
+
+
+def _provider_chain() -> list[str]:
+    """供应商调用顺序：主供应商优先；处于冷却期的排到链尾（仍作最后尝试）。"""
+    primary = (config.LLM_PROVIDER or "qwen").lower()
+    candidates = [primary]
+    fallback = "minimax" if primary != "minimax" else "qwen"
+    if fallback == "minimax" and config.MINIMAX_API_KEY:
+        candidates.append("minimax")
+    elif fallback == "qwen" and config.DASHSCOPE_API_KEY and primary != "qwen":
+        candidates.append("qwen")
+    now = time.time()
+    ready = [p for p in candidates if _PROVIDER_COOLDOWN.get(p, 0) <= now]
+    cooling = [p for p in candidates if _PROVIDER_COOLDOWN.get(p, 0) > now]
+    return ready + cooling
+
+
+def _record_usage(user_id, plan_id, action, payload, data):
+    if not user_id or "usage" not in data:
+        return
+    try:
+        from . import database as db
+        usage = data["usage"]
+        model_name = payload.get("model", "unknown")
+        cost_per_1k = 0.002 if "turbo" in model_name or "fast" in model_name else 0.008
+        total_tokens = usage.get("total_tokens", 0)
+        estimated_cost = (total_tokens / 1000.0) * cost_per_1k
+        db.record_ai_usage(
+            user_id=user_id,
+            action=action,
+            model=model_name,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            plan_id=plan_id,
+            cost=estimated_cost,
+        )
+    except Exception as e:
+        log.warning("Failed to record AI usage: %s", e)
+
+
+def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False,
+             user_id: str = None, plan_id: str = None, action: str = "complete"):
+    system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
+    for provider in _provider_chain():
+        built = _build_payload(provider, system=system, user_prompt=user_prompt,
+                               max_tokens=max_tokens, use_fast_model=use_fast_model,
+                               temperature=0.2, json_mode=False)
+        if not built:
+            continue
+        url, headers, payload = built
+        try:
+            with httpx.Client(timeout=180) as client:
+                resp = client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            _record_usage(user_id, plan_id, action, payload, data)
+            _PROVIDER_COOLDOWN.pop(provider, None)
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            log.warning("LLM complete failed (%s): %s: %s", provider, type(e).__name__, e)
+            _PROVIDER_COOLDOWN[provider] = time.time() + _COOLDOWN_SECONDS
+    return None
 
 
 def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, use_fast_model: bool = False, max_retries: int = 2,
                   user_id: str = None, plan_id: str = None, action: str = "complete_json") -> dict | None:
     """调用 LLM 并强制返回 JSON 格式。失败返回 None。
 
-    自适应重试：若检测到 JSON 被截断（Unterminated string），自动提升 max_tokens 重试。
+    自适应重试：若检测到 JSON 被截断（Unterminated string），自动提升 max_tokens 重试；
+    单个供应商重试穷尽后自动切换到下一个可用供应商（如百炼限流 → minimax）。
     """
-    provider = config.LLM_PROVIDER.lower()
-    if provider == "minimax":
-        if not config.MINIMAX_API_KEY:
-            return None
-        url = config.MINIMAX_BASE_URL.rstrip("/") + "/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {config.MINIMAX_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        payload_template = {
-            "model": config.MINIMAX_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-            "thinking": {"type": "disabled"},
-        }
-    else:  # qwen (default)
-        if not config.DASHSCOPE_API_KEY:
-            return None
-        url = config.QWEN_BASE_URL.rstrip("/") + "/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        model = config.QWEN_MODEL_FAST if use_fast_model else config.QWEN_MODEL
-        payload_template = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-        }
+    for provider in _provider_chain():
+        built = _build_payload(provider, system=system_prompt, user_prompt=user_prompt,
+                               max_tokens=max_tokens, use_fast_model=use_fast_model,
+                               temperature=0.1, json_mode=True)
+        if not built:
+            continue
+        url, headers, payload_template = built
+        current_max_tokens = max_tokens
+        for attempt in range(max_retries + 1):
+            payload = {**payload_template, "max_tokens": current_max_tokens}
+            try:
+                with httpx.Client(timeout=300) as client:
+                    resp = client.post(url, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
 
-    current_max_tokens = max_tokens
-    for attempt in range(max_retries + 1):
-        payload = {**payload_template, "max_tokens": current_max_tokens}
-        try:
-            with httpx.Client(timeout=300) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+                _record_usage(user_id, plan_id, action, payload, data)
 
-            # Record AI usage if user_id provided
-            if user_id and "usage" in data:
-                try:
-                    from . import database as db
-                    usage = data["usage"]
-                    model_name = payload.get("model", "unknown")
-                    cost_per_1k = 0.002 if "turbo" in model_name or "fast" in model_name else 0.008
-                    total_tokens = usage.get("total_tokens", 0)
-                    estimated_cost = (total_tokens / 1000.0) * cost_per_1k
-
-                    db.record_ai_usage(
-                        user_id=user_id,
-                        action=action,
-                        model=model_name,
-                        prompt_tokens=usage.get("prompt_tokens", 0),
-                        completion_tokens=usage.get("completion_tokens", 0),
-                        plan_id=plan_id,
-                        cost=estimated_cost,
-                    )
-                except Exception as e:
-                    log.warning("Failed to record AI usage: %s", e)
-
-            text = data["choices"][0]["message"]["content"].strip()
-            text = text.lstrip("```json").rstrip("```").strip()
-            return _json.loads(text)
-        except _json.JSONDecodeError as e:
-            # 检测是否因截断导致解析失败
-            error_msg = str(e)
-            is_truncated = "Unterminated string" in error_msg or "Expecting" in error_msg
-            if is_truncated and attempt < max_retries:
-                # 自适应提升 tokens：每次翻倍，上限 16000
-                current_max_tokens = min(current_max_tokens * 2, 16000)
-                log.warning("JSON truncated at attempt %d, retrying with max_tokens=%d", attempt + 1, current_max_tokens)
-                continue
-            log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
-            return None
-        except Exception as e:
-            log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
-            return None
+                text = data["choices"][0]["message"]["content"].strip()
+                text = text.lstrip("```json").rstrip("```").strip()
+                result = _json.loads(text)
+                _PROVIDER_COOLDOWN.pop(provider, None)
+                return result
+            except _json.JSONDecodeError as e:
+                # 检测是否因截断导致解析失败
+                error_msg = str(e)
+                is_truncated = "Unterminated string" in error_msg or "Expecting" in error_msg
+                if is_truncated and attempt < max_retries:
+                    # 自适应提升 tokens：每次翻倍，上限 16000
+                    current_max_tokens = min(current_max_tokens * 2, 16000)
+                    log.warning("JSON truncated at attempt %d (%s), retrying with max_tokens=%d",
+                                attempt + 1, provider, current_max_tokens)
+                    continue
+                log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
+                break
+            except Exception as e:
+                log.warning("LLM complete_json failed (%s): %s: %s", provider, type(e).__name__, e)
+                break
+        # 该供应商重试穷尽，进入冷却并尝试下一个供应商
+        _PROVIDER_COOLDOWN[provider] = time.time() + _COOLDOWN_SECONDS
+        log.warning("Provider %s exhausted, falling back to next provider", provider)
+    return None
