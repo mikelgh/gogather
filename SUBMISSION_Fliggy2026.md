@@ -157,18 +157,38 @@ GoGather 把「一句话描述活动」变成「一份可预订、可跟进、�
 
 ### 截图
 
-已抓取到 `vibe_images/submission/`（该目录已 gitignore，不会进仓库），可直接拖进 Issue：
+截图已挂在公开 Demo 域名下，**下面这段 Markdown 可直接整段粘贴进 Issue，图片会自动渲染**：
 
-| 文件 | 内容 |
-|------|------|
-| `chat_outline_card.png` | 对话态 + **大纲确认卡片**（D1/D2 分组、时段、类型标签） |
-| `share_h5ydji.png` | 分享页：AI 生成封面 + 地图时间线 + 真实价格 + 飞猪预订/验价链接 |
-| `map_h5ydji.png` | 全屏地图时间线：18 个地点编号徽章、按天着色、自动播放 |
-| `guide.png` | `/guide` 功能说明页 |
+```markdown
+**① 对话态 + 大纲确认卡片**
 
-> 建议再补 2 张：**完整方案页**（预算明细 / 分房方案 / 行动项）与**微信分享卡片**
-> （把 `/share/h5ydji` 链接发到微信，看 OpenGraph 抓取的封面效果）。
-> 这两张需要登录态，建议在自己的浏览器里截。
+用户一句话描述活动，百炼抽取参数后先出逐日大纲卡片供确认，确认（或提出修改）后再生成完整方案。
+
+![对话态与行程大纲确认卡片](https://gogather.partystack.cn/static/submission/chat_outline_card.png)
+
+**② 分享页：AI 封面 + 真实价格 + 一键预订**
+
+团员无需注册即可查看。每条行程带真实价格与「飞猪预订/验价」链接。
+
+![分享页：AI 生成封面、地图时间线、真实价格与预订入口](https://gogather.partystack.cn/static/submission/share_h5ydji.png)
+
+**③ 全屏地图时间线**
+
+18 个地点编号徽章、按天着色、自动播放；重叠地点环形偏移避免遮挡。
+
+![全屏地图时间线](https://gogather.partystack.cn/static/submission/map_h5ydji.png)
+
+**④ 使用指南页**
+
+![使用指南页](https://gogather.partystack.cn/static/submission/guide.png)
+```
+
+> 如果 Issue 编辑器不接受外链图片，改为**下载后再拖拽上传**：
+> 直接在浏览器打开 `https://gogather.partystack.cn/static/submission/` 下的图片另存到本地，
+> 再拖进 Issue 输入框（GitHub 会自动上传到 `user-attachments` 并生成永久链接）。
+
+> 建议补 2 张需要登录态的：**完整方案页**（预算明细 / 分房方案 / 行动项）与
+> **微信分享卡片**（把 `/share/h5ydji` 发到微信，看 OpenGraph 抓取的封面效果）。
 
 ---
 
