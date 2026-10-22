@@ -360,10 +360,12 @@ def _validate_booking_links(result: dict) -> None:
             item["booking_link"] = None
             continue
         # Detect feizhu router URLs with placeholder tokens (e.g. ?url=train_gz_cd)
+        # Real links have URL-encoded nested URLs (?url=https%3A%2F%2F...) or long numeric IDs
         m = re.search(r"url=([^&]+)", link)
         if m and "router.feizhu.com" in link:
             token = m.group(1)
-            if not re.match(r"^\d{10,}$", token):
+            # Placeholder: short lowercase token (e.g. train_gz_cd, jiuzhaigou, hotel_cd_1)
+            if re.match(r"^[a-z][a-z0-9_]{2,25}$", token):
                 item["booking_link"] = None
 
 
