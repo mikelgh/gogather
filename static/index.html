@@ -2036,7 +2036,20 @@ body {
   cursor: not-allowed;
 }
 
-#mapLocationList { margin-bottom: 20px; }
+#mapSideLayout { display: none; gap: 14px; margin-bottom: 20px; align-items: stretch; }
+#mapSideLayout.visible { display: flex; }
+#mapSideLayout #mapContainer { flex: 1; min-width: 0; height: 420px; margin-bottom: 0; border-radius: 12px; overflow: hidden; }
+.map-side-panel { width: 320px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.map-side-panel .panel-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border-light); flex-shrink: 0; }
+.map-side-panel .panel-title { font-size: 14px; font-weight: 600; }
+.map-side-panel .panel-count { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+#mapLocationList { flex: 1; overflow-y: auto; }
+@media (max-width: 900px) {
+  #mapSideLayout.visible { flex-direction: column; }
+  #mapSideLayout #mapContainer { height: 300px; flex: none; }
+  .map-side-panel { width: 100%; }
+  #mapLocationList { max-height: 220px; }
+}
 
 </style>
 </head>
@@ -2228,7 +2241,16 @@ body {
 
     <div class="plan-content">
       <div class="tab-content" id="timelineTab">
-        <div id="mapContainer" style="height: 400px; margin-bottom: 20px; border-radius: 12px; overflow: hidden; display: none;"></div>
+        <div id="mapSideLayout">
+          <div id="mapContainer"></div>
+          <div class="map-side-panel">
+            <div class="panel-head">
+              <div class="panel-title">📍 地点列表</div>
+              <div class="panel-count" id="mapLocCount"></div>
+            </div>
+            <div id="mapLocationList"></div>
+          </div>
+        </div>
         <div class="timeline" id="timelineContent"></div>
       </div>
 
@@ -2777,16 +2799,15 @@ let planMapInstance = null; // 方案页地图实例
 
 async function renderMap() {
   const container = document.getElementById('mapContainer');
-  if (!container) return;
-  // 清除旧地图与地点列表
+  const layout = document.getElementById('mapSideLayout');
+  if (!container || !layout) return;
+  // 清除旧地图
   if (planMapInstance) {
     planMapInstance.destroy();
     planMapInstance = null;
   }
-  const oldList = document.getElementById('mapLocationList');
-  if (oldList) oldList.remove();
   container.innerHTML = '';
-  container.style.display = 'none';
+  layout.classList.remove('visible');
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/map`);
     if (!resp.ok) return;
@@ -2794,10 +2815,13 @@ async function renderMap() {
     const timeline = data.timeline || [];
     const points = timeline.filter(t => t.lat && t.lng);
     if (points.length === 0) return;
-    container.style.display = 'block';
+    layout.classList.add('visible');
+    document.getElementById('mapLocCount').textContent = `${points.length} 个地点 · 点击定位`;
     const shareCode = (state.plan && state.plan.share_code) || '';
     planMapInstance = GoGatherMap.create(container, points, {
-      listId: 'mapLocationList',
+      layout: 'side',
+      listEl: document.getElementById('mapLocationList'),
+      showLocation: true,
       fullscreenUrl: shareCode ? `/map/${shareCode}?from=plan&plan=${encodeURIComponent(state.planId)}` : '',
     });
   } catch (err) {
@@ -2819,15 +2843,12 @@ function startOver() {
     planMapInstance.destroy();
     planMapInstance = null;
   }
-  const oldMapList = document.getElementById('mapLocationList');
-  if (oldMapList) oldMapList.remove();
+  const mapLayout = document.getElementById('mapSideLayout');
+  if (mapLayout) mapLayout.classList.remove('visible');
   const mapContainer = document.getElementById('mapContainer');
-  if (mapContainer) {
-    mapContainer.innerHTML = '';
-    mapContainer.style.display = 'none';
-  }
+  if (mapContainer) mapContainer.innerHTML = '';
   const mapLocationList = document.getElementById('mapLocationList');
-  if (mapLocationList) mapLocationList.remove();
+  if (mapLocationList) mapLocationList.innerHTML = '';
   switchView('chat');
   document.getElementById('chatInput').focus();
   loadPlanList();
