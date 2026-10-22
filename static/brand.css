@@ -10,6 +10,9 @@
   --primary-light: #818cf8;
   --primary-dark: #4f46e5;
   --primary-bg: rgba(99,102,241,0.06);
+  --primary-bg-strong: #eef2ff;
+  --primary-bg-hover: #e0e7ff;
+  --brand-gradient: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 
   --accent: #f59e0b;
   --success: #10b981;
@@ -48,4 +51,36 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+}
+/* ── 品牌标识 ──────────────────────────────────────────
+   index / share / map 三页共用同一套结构，不要各自再写一份 */
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: block;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+}
+
+.brand-logo-word {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.brand-logo-cn {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }

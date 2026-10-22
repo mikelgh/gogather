@@ -5,17 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GoGather 管理后台</title>
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="alternate icon" href="/static/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#6366f1">
+<link rel="stylesheet" href="/static/brand.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #f5f7fa;
-    color: #1a202c;
+    font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
     line-height: 1.6;
   }
   .header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--brand-gradient);
     color: white;
     padding: 20px 0;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -50,9 +55,9 @@
     transition: transform 0.2s;
   }
   .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
-  .stat-card .label { font-size: 14px; color: #718096; margin-bottom: 8px; }
-  .stat-card .value { font-size: 32px; font-weight: 700; color: #2d3748; }
-  .stat-card .sub { font-size: 13px; color: #a0aec0; margin-top: 4px; }
+  .stat-card .label { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; color: var(--text); }
+  .stat-card .sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
   .chart-container {
     background: white;
     border-radius: 12px;
@@ -60,7 +65,7 @@
     margin-bottom: 30px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
-  .chart-container h2 { font-size: 18px; margin-bottom: 20px; color: #2d3748; }
+  .chart-container h2 { font-size: 18px; margin-bottom: 20px; color: var(--text); }
   .chart-wrapper { position: relative; height: 300px; }
   .data-table {
     background: white;
@@ -69,12 +74,12 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     overflow-x: auto;
   }
-  .data-table h2 { font-size: 18px; margin-bottom: 20px; color: #2d3748; }
+  .data-table h2 { font-size: 18px; margin-bottom: 20px; color: var(--text); }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-  th { background: #f7fafc; font-weight: 600; color: #4a5568; font-size: 14px; }
-  td { font-size: 14px; color: #2d3748; }
-  tr:hover { background: #f7fafc; }
+  th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg); font-weight: 600; color: var(--text-secondary); font-size: 14px; }
+  td { font-size: 14px; color: var(--text); }
+  tr:hover { background: var(--bg); }
   .badge {
     display: inline-block;
     padding: 4px 12px;
@@ -82,16 +87,16 @@
     font-size: 12px;
     font-weight: 600;
   }
-  .badge-primary { background: #e6fffa; color: #047857; }
-  .badge-secondary { background: #fef3c7; color: #92400e; }
+  .badge-primary { background: #e6fffa; color: var(--success); }
+  .badge-secondary { background: #fef3c7; color: var(--warning); }
   .loading {
     text-align: center;
     padding: 40px;
-    color: #718096;
+    color: var(--text-secondary);
   }
   .error {
     background: #fed7d7;
-    color: #c53030;
+    color: var(--danger);
     padding: 16px;
     border-radius: 8px;
     margin-bottom: 20px;
@@ -100,7 +105,7 @@
     display: flex;
     gap: 8px;
     margin-bottom: 20px;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border);
   }
   .tab {
     padding: 12px 24px;
@@ -108,11 +113,11 @@
     border-bottom: 2px solid transparent;
     margin-bottom: -2px;
     font-weight: 600;
-    color: #718096;
+    color: var(--text-secondary);
     transition: all 0.2s;
   }
-  .tab:hover { color: #4a5568; }
-  .tab.active { color: #667eea; border-bottom-color: #667eea; }
+  .tab:hover { color: var(--text-secondary); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 </style>
@@ -120,7 +125,7 @@
 <body>
 <div class="header">
   <div class="header-content">
-    <h1>📊 GoGather 管理后台</h1>
+    <h1><img src="/logo.svg" alt="" style="width:26px;height:26px;border-radius:8px;vertical-align:-5px;margin-right:8px;">GoGather 管理后台</h1>
     <div class="user-info">
       <img id="userAvatar" class="avatar" src="" alt="avatar" style="display:none">
       <span id="userName"></span>
@@ -321,7 +326,7 @@ async function loadOverview() {
           labels: usage.by_model.map(m => m.model),
           datasets: [{
             data: usage.by_model.map(m => m.tokens),
-            backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b']
+            backgroundColor: ['#6366f1', '#a78bfa', '#f472b6', '#38bdf8', '#34d399']
           }]
         },
         options: {
@@ -371,7 +376,7 @@ async function loadPlans() {
         <td>${(p.summary || '').substring(0, 50)}${(p.summary || '').length > 50 ? '...' : ''}</td>
         <td>${new Date(p.created_at).toLocaleDateString('zh-CN')}</td>
         <td>${p.used_llm ? '<span class="badge badge-primary">是</span>' : '<span class="badge badge-secondary">否</span>'}</td>
-        <td><button onclick="viewPlanUsage('${p.id}')" style="padding:4px 12px;border:1px solid #667eea;background:white;color:#667eea;border-radius:6px;cursor:pointer">AI 详情</button></td>
+        <td><button onclick="viewPlanUsage('${p.id}')" style="padding:4px 12px;border:1px solid var(--primary);background:white;color:var(--primary);border-radius:6px;cursor:pointer">AI 详情</button></td>
       </tr>
     `).join('');
     document.getElementById('plansLoading').style.display = 'none';
@@ -418,7 +423,7 @@ async function loadAIUsage() {
           datasets: [{
             label: 'Token 消耗',
             data: usage.by_user.map(u => u.tokens || 0),
-            backgroundColor: '#667eea'
+            backgroundColor: '#6366f1'
           }]
         },
         options: {

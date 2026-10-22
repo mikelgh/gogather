@@ -11,6 +11,10 @@
 <meta property="og:image" content="/og-cover.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="alternate icon" href="/static/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#6366f1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -46,28 +50,6 @@
   font-size: 17px;
 }
 
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  display: block;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
-}
-
-.logo-word {
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: -0.02em;
-}
-
-.logo-cn {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted, #94a3b8);
-  padding: 1px 7px;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 6px;
-}
 
 .share-badge {
   font-size: 11px;
@@ -524,11 +506,11 @@
 
 <header class="header">
   <div class="header-inner">
-    <div class="logo">
-      <img src="/logo.svg" class="logo-icon" alt="GoGather">
-      <span class="logo-word">GoGather</span>
-      <span class="logo-cn">聚行</span>
-    </div>
+    <a class="brand-logo" href="/">
+      <img src="/logo.svg" class="brand-logo-icon" alt="GoGather">
+      <span class="brand-logo-word">GoGather</span>
+      <span class="brand-logo-cn">聚行</span>
+    </a>
     <span class="share-badge">只读分享</span>
   </div>
 </header>

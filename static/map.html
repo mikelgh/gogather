@@ -5,14 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GoGather 聚行 · 全屏地图</title>
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/static/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#6366f1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/static/brand.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-    color: #1e293b;
-    background: #f8fafc;
+    font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text);
+    background: var(--bg);
     display: flex;
     flex-direction: column;
   }
@@ -20,7 +25,7 @@
   .map-header {
     height: 56px;
     background: #fff;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -28,20 +33,9 @@
     flex-shrink: 0;
     z-index: 1000;
   }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 17px;
-    font-weight: 700;
-    color: #4f46e5;
-    text-decoration: none;
-    flex-shrink: 0;
-  }
-  .brand img { width: 26px; height: 26px; }
   .map-title {
     font-size: 14px;
-    color: #475569;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -54,15 +48,15 @@
     gap: 6px;
     padding: 7px 14px;
     border-radius: 8px;
-    background: #eef2ff;
-    color: #4f46e5;
+    background: var(--primary-bg-strong);
+    color: var(--primary-dark);
     font-size: 13px;
     font-weight: 500;
     text-decoration: none;
     flex-shrink: 0;
     transition: background 0.15s;
   }
-  .back-link:hover { background: #e0e7ff; }
+  .back-link:hover { background: var(--primary-bg-hover); }
 
   .map-layout {
     flex: 1;
@@ -75,22 +69,22 @@
     width: 340px;
     flex-shrink: 0;
     background: #fff;
-    border-left: 1px solid #e2e8f0;
+    border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     min-height: 0;
   }
   .panel-head {
     padding: 14px 16px 10px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .panel-head h2 { font-size: 15px; font-weight: 600; }
-  .panel-head .count { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+  .panel-head .count { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   #fullscreenLocationList { flex: 1; overflow-y: auto; }
 
   .map-location-item { transition: background 0.12s; }
-  .map-location-item:hover { background: #f1f5f9; }
+  .map-location-item:hover { background: var(--surface-hover); }
 
   .empty-state {
     flex: 1;
@@ -99,7 +93,7 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    color: #94a3b8;
+    color: var(--text-muted);
     font-size: 14px;
     padding: 30px;
     text-align: center;
@@ -108,14 +102,16 @@
   @media (max-width: 768px) {
     .map-layout { flex-direction: column; }
     #fullscreenMap { height: 45vh; flex: none; }
-    .location-panel { width: 100%; flex: 1; border-left: none; border-top: 1px solid #e2e8f0; }
+    .location-panel { width: 100%; flex: 1; border-left: none; border-top: 1px solid var(--border); }
   }
 </style>
 </head>
 <body>
   <header class="map-header">
-    <a class="brand" href="/">
-      <img src="/logo.svg" alt="logo">GoGather 聚行
+    <a class="brand-logo" href="/">
+      <img src="/logo.svg" class="brand-logo-icon" alt="GoGather">
+      <span class="brand-logo-word">GoGather</span>
+      <span class="brand-logo-cn">聚行</span>
     </a>
     <div class="map-title" id="mapTitle">加载中…</div>
     <a class="back-link" id="backLink" href="/" style="display:none;">← 返回方案页</a>
