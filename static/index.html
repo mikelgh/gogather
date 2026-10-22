@@ -1771,6 +1771,21 @@ body {
   min-width: 0;
 }
 
+.plan-list-item-idx {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+  min-width: 24px;
+  text-align: left;
+}
+
+.plan-list-item.active .plan-list-item-idx {
+  color: var(--primary);
+}
+
 .plan-list-item:hover {
   background: var(--surface-hover);
 }
@@ -2161,7 +2176,7 @@ body {
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">我的方案</span>
+      <span class="sidebar-title" id="sidebarTitle">我的方案</span>
       <button class="sidebar-new-btn" onclick="startOver()" title="新建方案">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
@@ -2547,13 +2562,17 @@ async function loadPlanList() {
     if (!resp.ok) return;
     const plans = await resp.json();
     const list = document.getElementById('planList');
+    const titleEl = document.getElementById('sidebarTitle');
+    if (titleEl) titleEl.textContent = `我的方案 (${plans.length})`;
     if (plans.length === 0) {
       list.innerHTML = '<li class="plan-list-empty">暂无方案<br><small>输入需求开始规划</small></li>';
       return;
     }
-    list.innerHTML = plans.map(p => {
+    list.innerHTML = plans.map((p, i) => {
       const isActive = p.id === state.planId;
       const date = new Date(p.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+      // 列表按时间倒序，编号按生成顺序递增（最早 = #1）
+      const idx = plans.length - i;
       const params = p.params || {};
       const city = params.city || '';
       const group = String(params.group_size || '').replace(/\D/g, '');
@@ -2567,6 +2586,7 @@ async function loadPlanList() {
       const meta = [dates, origin + transportLabel, vibe, budgetTier].filter(Boolean).join(' · ');
       return `
         <li class="plan-list-item${isActive ? ' active' : ''}">
+          <span class="plan-list-item-idx" title="第 ${idx} 个方案">#${idx}</span>
           <div class="plan-list-item-content" onclick="selectPlan('${p.id}')">
             <div class="plan-list-item-title">${title}</div>
             <div class="plan-list-item-summary">${meta || p.summary || ''}</div>
