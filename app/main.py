@@ -8,7 +8,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import httpx
@@ -163,6 +163,19 @@ def admin_plan_ai_usage(plan_id: str, admin: dict = Depends(get_admin_user)):
 
 
 # ── 页面 ──────────────────────────────────────────────────
+
+@app.exception_handler(404)
+async def not_found(request: Request, exc):
+    """未匹配的路径：接口与静态资源仍返回 404，页面走品牌 404。"""
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/static/"):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "404.html"),
+        status_code=404,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
 
 @app.get("/")
 def index():

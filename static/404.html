@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>页面不存在 · GoGather 聚行</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/brand.css">
+<style>
+.notfound {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+}
+.notfound-code {
+  font-size: 88px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.notfound-title { font-size: 24px; font-weight: 600; color: var(--text); margin-top: 20px; }
+.notfound-desc { font-size: 15px; color: var(--text-secondary); margin-top: 10px; max-width: 420px; line-height: 1.75; }
+.notfound-actions { display: flex; gap: 12px; margin-top: 32px; flex-wrap: wrap; justify-content: center; }
+.btn {
+  display: inline-flex; align-items: center;
+  font-family: inherit; font-size: 14.5px; font-weight: 600;
+  padding: 12px 24px; border-radius: var(--radius); text-decoration: none;
+  transition: var(--transition);
+}
+.btn-primary { background: var(--brand-gradient); color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); }
+.btn-ghost { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+.notfound-logo { margin-bottom: 34px; }
+</style>
+</head>
+<body>
+<div class="notfound">
+  <div class="notfound-logo">
+    <a class="brand-logo" href="/">
+      <img class="brand-logo-icon" src="/logo.svg" alt="">
+      <span class="brand-logo-word">GoGather</span>
+      <span class="brand-logo-cn">聚行</span>
+    </a>
+  </div>
+  <div class="notfound-code">404</div>
+  <h1 class="notfound-title" data-copy="error.notFound" data-copy-fallback="页面不存在">页面不存在</h1>
+  <p class="notfound-desc" data-copy="notFound.desc" data-copy-fallback="链接可能已经失效，或者地址输错了。">链接可能已经失效，或者地址输错了。</p>
+  <div class="notfound-actions">
+    <a class="btn btn-primary" href="/" data-copy="notFound.backHome" data-copy-fallback="回到首页">回到首页</a>
+    <a class="btn btn-ghost" href="/guide" data-copy="guide.navEntry" data-copy-fallback="使用指南">使用指南</a>
+  </div>
+</div>
+
+<script src="/static/copy.js"></script>
+</body>
+</html>

@@ -127,6 +127,11 @@ window.COPY = {
     s3Desc: '点这些预设场景快速起个草稿，再补上人数和日期就行。下面三个筛选可以设定预算档次和交通方式。',
   },
 
+notFound: {
+    desc: '链接可能已经失效，或者地址输错了。',
+    backHome: '回到首页',
+  },
+
 guide: {
     navEntry: '使用指南',
     entryHint: '看看使用指南',
