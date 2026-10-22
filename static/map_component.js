@@ -11,6 +11,7 @@
  *         'side'    地点列表渲染在容器内的右侧面板（全屏布局用）
  * fullscreenUrl: 传入时在地图右上角显示"⛶ 全屏查看"按钮（新窗口打开该地址）
  * compact: 列表使用小号字体（侧栏面板较窄时用）
+ * autoplay: 是否显示"▶ 自动播放"按钮（默认 true，多于 1 个地点时生效）
  */
 const GoGatherMap = (() => {
   const DAY_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -125,6 +126,61 @@ const GoGatherMap = (() => {
       markerList.push({ marker, item, idx, disp: disp[idx] });
     });
 
+    // 自动播放：按顺序每 2 秒切换一个地点，播完回到第一个地点停止
+    let playing = false;
+    let playTimer = null;
+    let playIdx = 0;
+    let playBtn = null;
+
+    function renderPlayBtn() {
+      if (playBtn) playBtn.textContent = playing ? '⏸ 停止播放' : '▶ 自动播放';
+    }
+
+    function stopAutoplay(backToFirst) {
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+      playing = false;
+      if (backToFirst) focus(0);
+      renderPlayBtn();
+    }
+
+    function playStep() {
+      if (playIdx >= markerList.length) { stopAutoplay(true); return; }
+      focus(playIdx);
+      playIdx++;
+    }
+
+    function startAutoplay() {
+      if (playing) return;
+      playing = true;
+      playIdx = 0;
+      renderPlayBtn();
+      playStep();
+      playTimer = setInterval(playStep, 2000);
+    }
+
+    if (opts.autoplay !== false && markerList.length > 1) {
+      const PlayControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+          playBtn = L.DomUtil.create('a', 'gogather-map-play');
+          playBtn.href = '#';
+          playBtn.textContent = '▶ 自动播放';
+          playBtn.style.cssText = 'display:flex;align-items:center;gap:4px;background:#fff;border-radius:8px;'
+            + 'padding:6px 12px;font-size:13px;font-weight:500;color:var(--primary, #6366f1);'
+            + 'text-decoration:none;box-shadow:0 2px 6px rgba(0,0,0,0.15);white-space:nowrap;cursor:pointer;';
+          L.DomEvent.disableClickPropagation(playBtn);
+          L.DomEvent.on(playBtn, 'click', (e) => {
+            L.DomEvent.preventDefault(e);
+            if (playing) stopAutoplay(false); else startAutoplay();
+          });
+          return playBtn;
+        },
+      });
+      map.addControl(new PlayControl());
+      // 手动点击地点列表或 marker 时中断播放，避免与自动切换互相打架
+      markerList.forEach(({ marker }) => marker.on('click', () => stopAutoplay(false)));
+    }
+
     // 路线：虚线 + 中点箭头
     if (points.length > 1) {
       const latlngs = disp;
@@ -154,6 +210,7 @@ const GoGatherMap = (() => {
       listEl.querySelectorAll('.map-location-item').forEach(el => {
         el.addEventListener('click', () => {
           const idx = parseInt(el.dataset.idx);
+          stopAutoplay(false);
           focus(idx);
           highlight(listEl, idx);
         });
@@ -169,10 +226,11 @@ const GoGatherMap = (() => {
     }
 
     function destroy() {
+      stopAutoplay(false);
       map.remove();
     }
 
-    return { map, markers, markerList, focus, destroy, listEl };
+    return { map, markers, markerList, focus, play: startAutoplay, stop: () => stopAutoplay(false), destroy, listEl };
   }
 
   return { create };
