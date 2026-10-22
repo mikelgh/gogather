@@ -84,6 +84,29 @@
   margin-left: 12px;
 }
 
+.header-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  padding: 7px 14px;
+  border-radius: 9px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.header-new-btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
 .nav-guide-link {
   font-size: 13px;
   color: var(--text-muted);
@@ -1041,6 +1064,33 @@
 .budget-total .unit { font-size: 12px; opacity: 0.75; }
 .budget-captured-at { margin-top: 6px; font-size: 11px; opacity: 0.65; }
 
+/* ── 票价验价 ──────────────────────────────────────────── */
+.verify-bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.verify-btn {
+  padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--primary); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .2s;
+}
+.verify-btn:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-bg); }
+.verify-btn:disabled { opacity: .6; cursor: wait; }
+.verify-hint { font-size: 12px; color: var(--text-secondary); }
+.verify-panel {
+  margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface); padding: 14px 16px;
+}
+.verify-head { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; }
+.verify-time { font-size: 11px; font-weight: 400; color: var(--text-secondary); }
+.verify-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); margin-top: 10px; }
+.verify-title { font-size: 13px; font-weight: 600; }
+.verify-note { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.verify-side { text-align: right; flex-shrink: 0; }
+.verify-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.verify-tag.ok { background: rgba(16,185,129,.12); color: var(--success); }
+.verify-tag.warn { background: rgba(245,158,11,.14); color: #b45309; }
+.verify-tag.miss { background: rgba(107,114,128,.14); color: var(--text-secondary); }
+.verify-price { font-size: 13px; margin-top: 4px; }
+.verify-empty { font-size: 13px; color: var(--text-secondary); }
+
 /* ── Checklist ─────────────────────────────────────────── */
 .checklist-group { margin-bottom: 20px; }
 .checklist-group:last-child { margin-bottom: 0; }
@@ -1933,8 +1983,6 @@
   z-index: 50;
   transition: transform 0.3s ease;
 }
-  max-height: 100%;
-}
 
 .sidebar-header {
   padding: 16px;
@@ -1945,31 +1993,10 @@
 }
 
 .sidebar-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.sidebar-new-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
   color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition);
-}
-
-.sidebar-new-btn:hover {
-  background: var(--primary-bg);
-  color: var(--primary);
-  border-color: var(--primary);
+  letter-spacing: 0.3px;
 }
 
 .plan-list {
@@ -2115,10 +2142,12 @@
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 640px) {
   .header { padding: 10px 16px; }
-  /* 窄屏优先保证导航不折行：徽标与指南入口让位给主导航 */
+  /* 窄屏优先保证导航不折行：徽标与指南入口让位给主导航（新建方案保留，只留图标） */
   .brand-logo-cn { display: none; }
   .nav-tab { white-space: nowrap; padding: 7px 12px; }
-  .nav-header-actions { display: none; }
+  .nav-guide-link, .nav-tour-btn { display: none; }
+  .header-new-btn { padding: 7px 9px; }
+  .header-new-btn span { display: none; }
   .container { padding: 16px; padding-bottom: 260px; }
   .welcome-card { padding: 14px 16px; border-radius: var(--radius-lg); }
   .welcome-card h1 { font-size: 18px; }
@@ -2409,6 +2438,10 @@
       <button class="nav-tab" data-view="execution" onclick="switchView('execution')" data-copy="nav.execTab" data-copy-fallback="实施">实施</button>
     </nav>
     <div class="nav-header-actions">
+      <button class="header-new-btn" onclick="startOver()" title="新建方案">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>新建方案</span>
+      </button>
       <a class="nav-guide-link" href="/guide" target="_blank" rel="noopener" data-copy="guide.navEntry">使用指南</a>
       <button class="nav-tour-btn" onclick="startTour()" title="新手引导">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
@@ -2449,9 +2482,6 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span class="sidebar-title" id="sidebarTitle">我的方案</span>
-      <button class="sidebar-new-btn" onclick="startOver()" title="新建方案">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
     </div>
     <ul class="plan-list" id="planList">
       <li class="plan-list-empty" data-copy="empty.plans" data-copy-fallback="还没有方案">还没有方案</li>
@@ -2580,6 +2610,11 @@
           <div class="label">人均预算</div>
           <div class="amount">--</div>
         </div>
+        <div class="verify-bar">
+          <button class="verify-btn" id="verifyBtn" onclick="verifyPrices()">🔍 票价验价</button>
+          <span class="verify-hint">重新查询方案中航班/车次的飞猪实时价（不修改方案）</span>
+        </div>
+        <div id="verifyPanel" class="verify-panel hidden"></div>
       </div>
 
       <div class="tab-content hidden" id="tasksTab">
@@ -3786,7 +3821,13 @@ function renderBudget(structured) {
   const grid = document.getElementById('budgetGrid');
   const total = document.getElementById('budgetTotal');
   const budget = structured.budget || [];
-  
+
+  // 切换方案时清空上一方案的验价结果，按钮复位
+  const verifyPanel = document.getElementById('verifyPanel');
+  if (verifyPanel) { verifyPanel.classList.add('hidden'); verifyPanel.innerHTML = ''; }
+  const verifyBtn = document.getElementById('verifyBtn');
+  if (verifyBtn) { verifyBtn.disabled = false; verifyBtn.textContent = '🔍 票价验价'; }
+
   if (budget.length === 0) {
     grid.innerHTML = `
       <div class="budget-card"><div class="category">住宿</div><div class="amount">--</div><div class="unit">人均/晚</div></div>
@@ -3822,6 +3863,74 @@ function renderBudget(structured) {
     <div class="unit">具体价格以飞猪实时为准</div>
     ${capturedText ? `<div class="budget-captured-at">价格数据获取于 ${capturedText} · 为查询时点参考价</div>` : ''}
   `;
+}
+
+// ── 票价验价 ───────────────────────────────────────────────
+async function verifyPrices() {
+  const planId = state.plan && state.plan.id;
+  if (!planId) return;
+  const btn = document.getElementById('verifyBtn');
+  const panel = document.getElementById('verifyPanel');
+  btn.disabled = true;
+  btn.textContent = '⏳ 验价中…';
+  panel.classList.add('hidden');
+  try {
+    const resp = await authFetch(`/api/plan/${planId}/verify_prices`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '验价失败');
+    // 等待期间已切换方案 → 丢弃过期结果（renderBudget 已复位按钮）
+    if (!state.plan || state.plan.id !== planId) return;
+    renderVerifyReport(data);
+  } catch (e) {
+    if (!state.plan || state.plan.id !== planId) return;
+    showToast(e.message || '验价失败，请稍后重试', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 票价验价';
+  }
+}
+
+const VERIFY_STATUS_LABEL = {
+  unchanged: { cls: 'ok', label: '价格一致' },
+  changed: { cls: 'warn', label: '价格有变' },
+  not_found: { cls: 'miss', label: '未查到班次' },
+  no_price: { cls: 'miss', label: '未返回价格' },
+  no_old_price: { cls: 'warn', label: '补充现价' },
+};
+
+function renderVerifyReport(report) {
+  const panel = document.getElementById('verifyPanel');
+  if (!report.items || report.items.length === 0) {
+    panel.innerHTML = `<div class="verify-empty">${report.message || '没有可验价的交通项'}</div>`;
+    panel.classList.remove('hidden');
+    return;
+  }
+  const rows = report.items.map(it => {
+    const meta = VERIFY_STATUS_LABEL[it.status] || { cls: 'miss', label: '未知' };
+    const priceCell = (it.old_price != null && it.new_price != null)
+      ? `¥${it.old_price.toFixed(0)} → <b>¥${it.new_price.toFixed(0)}</b>`
+      : (it.new_price != null ? `现价 ¥${it.new_price.toFixed(0)}`
+        : (it.old_price != null ? `方案价 ¥${it.old_price.toFixed(0)}` : '--'));
+    return `
+      <div class="verify-row">
+        <div class="verify-main">
+          <div class="verify-title">${it.day ? `Day ${it.day} · ` : ''}${it.transport_no} · ${it.title}</div>
+          <div class="verify-note">${it.note}</div>
+        </div>
+        <div class="verify-side">
+          <span class="verify-tag ${meta.cls}">${meta.label}</span>
+          <div class="verify-price">${priceCell}</div>
+        </div>
+      </div>`;
+  }).join('');
+  const s = report.summary;
+  panel.innerHTML = `
+    <div class="verify-head">
+      <span>验价完成：${s.checked} 项交通，${s.changed} 项价格有变${s.not_found ? `，${s.not_found} 项未查到` : ''}</span>
+      <span class="verify-time">${String(report.checked_at).replace('T', ' ')} · ${report.note}</span>
+    </div>
+    ${rows}`;
+  panel.classList.remove('hidden');
 }
 
 function renderTasks(structured) {

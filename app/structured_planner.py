@@ -1,6 +1,7 @@
 """结构化方案生成：flyai 数据 → 时间线/预算/房间/行动项 JSON。"""
 import json
 import re
+from datetime import datetime
 
 from . import flyai_client as flyai
 from . import llm_client as _llm
@@ -301,10 +302,27 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
     result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, user_prompt, max_tokens=4000,
                                 user_id=user_id, plan_id=plan_id, action="generate_structured_plan")
     if not result:
+        # 整体生成失败（超长方案输出截断/供应商故障）：按天分片兜底，替代垃圾 fallback
+        result = _generate_plan_by_days(params, flyai_sections, outline, user_id, plan_id)
+    if not result:
         return _fallback_structured(params, flyai_sections)
 
-    # 校验-重试：发现问题则注入 prompt 重试一次，取问题更少的版本
+    # 分层修复：① 代码级确定性修复 → ② LLM 针对性修补 → ③ 整体重试兜底
     issues = _run_validators(result, params, flyai_sections)
+    if issues:
+        _apply_code_fixes(result, params)
+        issues = _run_validators(result, params, flyai_sections)
+
+    if issues:
+        patched = _patch_plan_issues(result, issues, params, flyai_sections,
+                                     user_id=user_id, plan_id=plan_id)
+        if patched:
+            _apply_code_fixes(patched, params)
+            patch_issues = _run_validators(patched, params, flyai_sections)
+            if len(patch_issues) < len(issues):
+                result = patched
+                issues = patch_issues
+
     if issues:
         retry_prompt = (
             user_prompt
@@ -316,6 +334,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
                                           user_id=user_id, plan_id=plan_id,
                                           action="generate_structured_plan_retry")
         if retry_result:
+            _apply_code_fixes(retry_result, params)
             retry_issues = _run_validators(retry_result, params, flyai_sections)
             if len(retry_issues) < len(issues):
                 result = retry_result
@@ -347,7 +366,8 @@ def _recompute_budget_per_person(result: dict, params: dict) -> None:
         amount = _money(item.get("estimated_cost"))
         if amount:
             total += amount
-    size = int(re.sub(r"\D", "", str(params.get("group_size", "")) or 0))
+    size_str = re.sub(r"\D", "", str(params.get("group_size", "")))
+    size = int(size_str) if size_str else 0
     if not total or not size:
         return
     per_person = round(total / size)
@@ -552,6 +572,40 @@ def _validate_budget_completeness(result: dict, params: dict) -> list[str]:
     return issues
 
 
+def _calc_total_from_desc(desc: str) -> float | None:
+    """从预算 description 的计算式（如 ¥400×15间×1晚）计算总额；无计算式返回 None。
+    校验器与代码级修复共用，保证口径一致。"""
+    calc_total = 0.0
+    has_calc = False
+
+    for group in re.split(r"[+＋]", desc):
+        g = group.replace("×", "*").replace("x", "*").replace("X", "*")
+        # ¥ 在开头: ¥100*30 或 ¥100*30*2
+        m = re.search(r"¥\s*([\d,]+(?:\.\d+)?)\s*[^\d*¥]*\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", g)
+        if m:
+            has_calc = True
+            unit = float(m.group(1).replace(",", ""))
+            q1 = float(m.group(2).replace(",", ""))
+            subtotal = unit * q1
+            # 继续匹配后续的 * qty（允许中文单位字符）
+            rest = g[m.end():]
+            for m2 in re.finditer(r"\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", rest):
+                subtotal *= float(m2.group(1).replace(",", ""))
+            calc_total += subtotal
+        else:
+            # ¥ 在末尾: 30人*3天*5餐*¥100
+            nums = re.findall(r"([\d,]+(?:\.\d+)?)\s*[^\d*+¥]*", g)
+            nums = [v for v in nums if v.strip()]
+            if len(nums) >= 4 and "¥" in g:
+                has_calc = True
+                subtotal = 1.0
+                for v in nums:
+                    subtotal *= float(v.replace(",", ""))
+                calc_total += subtotal
+
+    return calc_total if has_calc else None
+
+
 def _validate_budget_arithmetic(result: dict, params: dict) -> list[str]:
     """校验 budget 单行计算式与结果是否匹配（如 ¥400×15间×1晚 应等于 ¥6000）。"""
     issues = []
@@ -567,38 +621,8 @@ def _validate_budget_arithmetic(result: dict, params: dict) -> list[str]:
         if "待确认" in desc or "需通过预订链接确认" in desc:
             continue
 
-        # 按 + 拆分多组计算式
-        groups = re.split(r"[+＋]", desc)
-        calc_total = 0.0
-        has_calc = False
-
-        for group in groups:
-            g = group.replace("×", "*").replace("x", "*").replace("X", "*")
-            # ¥ 在开头: ¥100*30 或 ¥100*30*2
-            m = re.search(r"¥\s*([\d,]+(?:\.\d+)?)\s*[^\d*¥]*\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", g)
-            if m:
-                has_calc = True
-                unit = float(m.group(1).replace(",", ""))
-                q1 = float(m.group(2).replace(",", ""))
-                subtotal = unit * q1
-                # 继续匹配后续的 * qty（允许中文单位字符）
-                rest = g[m.end():]
-                for m2 in re.finditer(r"\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", rest):
-                    subtotal *= float(m2.group(1).replace(",", ""))
-                calc_total += subtotal
-            else:
-                # ¥ 在末尾: 30人*3天*5餐*¥100
-                nums = re.findall(r"([\d,]+(?:\.\d+)?)\s*[^\d*+¥]*", g)
-                nums = [v for v in nums if v.strip()]
-                if len(nums) >= 4 and "¥" in g:
-                    has_calc = True
-                    vals = [float(v.replace(",", "")) for v in nums]
-                    subtotal = 1.0
-                    for v in vals:
-                        subtotal *= v
-                    calc_total += subtotal
-
-        if has_calc and abs(stated - calc_total) > max(calc_total * 0.05, 10):
+        calc_total = _calc_total_from_desc(desc)
+        if calc_total is not None and abs(stated - calc_total) > max(calc_total * 0.05, 10):
             issues.append(
                 f"预算「{item.get('category', '')}」({desc}) 算术错误："
                 f"按计算式应为 ¥{calc_total:.0f}，实际写 ¥{stated}"
@@ -698,6 +722,148 @@ def _run_validators(result: dict, params: dict, flyai_sections: list) -> list[st
     return issues
 
 
+# ── Layered repair: ① code fixes → ② LLM patch → ③ full retry ──
+
+def _apply_code_fixes(result: dict, params: dict) -> None:
+    """代码级确定性修复（不调 LLM）：
+    1. budget 计算式与结果不符 → 以计算式结果为准改写 estimated_cost
+    2. 同一天时间顺序紊乱 → 按时间排序（仅当天所有项均可解析时间时才排，保守处理）
+    修复后重算人均预算。原地修改 result。"""
+    for item in result.get("budget", []):
+        if item.get("is_per_person"):
+            continue
+        desc = str(item.get("description", ""))
+        if not desc or "待确认" in desc or "需通过预订链接确认" in desc:
+            continue
+        calc = _calc_total_from_desc(desc)
+        if calc is None or calc <= 0:
+            continue
+        stated = _money(item.get("estimated_cost"))
+        if stated is None or abs(stated - calc) > max(calc * 0.05, 10):
+            item["estimated_cost"] = f"¥{calc:.0f}"
+
+    timeline = result.get("timeline", [])
+    day_blocks: dict[int, list[int]] = {}
+    for idx, item in enumerate(timeline):
+        d = _extract_day(item.get("time_range", ""))
+        if d:
+            day_blocks.setdefault(d, []).append(idx)
+
+    for idxs in day_blocks.values():
+        times = []
+        for idx in idxs:
+            m = re.search(r"(\d{1,2}):(\d{2})", str(timeline[idx].get("time_range", "")))
+            if not m:
+                times = None
+                break
+            times.append((int(m.group(1)), int(m.group(2))))
+        if not times:
+            continue
+        order = sorted(range(len(idxs)), key=lambda k: times[k])
+        if order != list(range(len(idxs))):
+            sorted_items = [timeline[idxs[k]] for k in order]
+            for pos, idx in enumerate(idxs):
+                timeline[idx] = sorted_items[pos]
+
+    _recompute_budget_per_person(result, params)
+
+
+_PATCHABLE_MARKERS = ("缺少返程", "未在 budget 中找到对应条目")
+
+_PATCH_SYSTEM = """你是旅行方案修复助手。给定一个团体出行方案与若干已发现的问题，只修复列出的问题，不做其他任何改动。
+
+输出严格遵循以下 JSON 格式（不要 markdown 代码块）：
+{
+    "budget": [修复后的完整预算数组：未涉及问题的原有条目原样保留，新增缺失的条目；同一类目只出现一行],
+    "timeline_additions": [需要新增的时间线项数组（如缺失的返程交通项）；若无需要新增的项则为空数组]
+}
+
+规则：
+1. 价格只能来自给定的飞猪搜索结果原文，禁止编造价格与链接
+2. 新增预算项必须给出计算式（如"¥550×30人"）与计算结果 estimated_cost，is_per_person 填 false
+3. 新增时间线项必须带 time_range（"Day N HH:MM-HH:MM"）、title、price、notes；booking_link 只能填飞猪结果中同一商家的链接，无对应则填 null；返程方向必须是从目的地返回出发地
+4. 严禁删除或改写未涉及问题的原有条目；不要输出 summary/action_items/room_allocation/budget_per_person
+"""
+
+
+def _patch_plan_issues(result: dict, issues: list, params: dict, flyai_sections: list,
+                       user_id: str = None, plan_id: str = None) -> dict | None:
+    """LLM 针对性修补：仅处理可修补问题（缺返程/预算漏项），小上下文生成补丁并合并。
+
+    返回修复后的新方案 dict（深拷贝），不可修补或 LLM 失败返回 None。"""
+    if not any(mk in issue for issue in issues for mk in _PATCHABLE_MARKERS):
+        return None
+
+    group_size = params.get("group_size", "30")
+
+    # 只带上受影响的时间线项，控制上下文
+    affected_titles = []
+    for issue in issues:
+        m = re.search(r"「(.+?)」", issue)
+        if m:
+            affected_titles.append(m.group(1))
+
+    affected_items = []
+    last_day = 0
+    for item in result.get("timeline", []):
+        d = _extract_day(item.get("time_range", "")) or 0
+        last_day = max(last_day, d)
+        text = json.dumps(item, ensure_ascii=False)
+        if any(t and t in text for t in affected_titles):
+            affected_items.append(item)
+
+    flyai_summary = "\n\n".join(f"【{t}】\n{(d or '')[:1200]}" for t, d in flyai_sections)
+
+    user_prompt = f"""请修复以下问题：
+{chr(10).join('- ' + i for i in issues)}
+
+==== 当前 budget ====
+{json.dumps(result.get('budget', []), ensure_ascii=False, indent=1)}
+
+==== 受影响的时间线项 ====
+{json.dumps(affected_items, ensure_ascii=False, indent=1) if affected_items else "（无）"}
+
+行程共 {last_day} 天，人数 {group_size} 人，出发地 {params.get('origin', '')}。
+
+==== 飞猪搜索结果 ====
+{flyai_summary}
+
+只输出修复补丁 JSON。
+"""
+
+    patched = _llm.complete_json(_PATCH_SYSTEM, user_prompt, max_tokens=3000,
+                                 user_id=user_id, plan_id=plan_id, action="patch_plan_issues")
+    if not patched:
+        return None
+
+    import copy
+    patched_plan = copy.deepcopy(result)
+
+    new_budget = patched.get("budget")
+    if isinstance(new_budget, list):
+        cleaned = [b for b in new_budget if isinstance(b, dict) and b.get("category")]
+        if cleaned:
+            patched_plan["budget"] = cleaned
+
+    additions = patched.get("timeline_additions")
+    if isinstance(additions, list):
+        timeline = patched_plan.setdefault("timeline", [])
+        for add in additions:
+            if not isinstance(add, dict) or not add.get("title"):
+                continue
+            # 插入到同一天最后一项之后，保持按天分块的顺序
+            d = _extract_day(str(add.get("time_range", "")))
+            insert_at = len(timeline)
+            if d:
+                for idx in range(len(timeline) - 1, -1, -1):
+                    if _extract_day(str(timeline[idx].get("time_range", ""))) == d:
+                        insert_at = idx + 1
+                        break
+            timeline.insert(insert_at, add)
+
+    return patched_plan
+
+
 def _fallback_structured(params: dict, flyai_sections: list) -> dict:
     """LLM 失败时的兜底结构化方案。"""
     city = params.get("city", "")
@@ -735,13 +901,207 @@ def _fallback_structured(params: dict, flyai_sections: list) -> dict:
         })
 
     return {
-        "summary": f"{group_size}人{city}聚会方案",
+        "summary": f"{_group_label(group_size)}{city}聚会方案",
         "action_items": action_items,
         "timeline": timeline,
         "budget": budget,
         "room_allocation": [],
         "budget_per_person": "待估算",
     }
+
+
+# ── 按天分片生成（整体生成失败时的兜底） ───────────────────
+
+DAY_SLICE_SYSTEM = """你是团体出行方案结构化助手。基于飞猪搜索结果，为多天行程中的某一天生成结构化 JSON。
+
+输出严格遵循以下 JSON 格式（不要 markdown 代码块）：
+{
+    "timeline": [
+        {"time_range": "Day N HH:MM-HH:MM", "title": "安排内容", "location": "地点",
+         "booking_link": "https://... 或 null", "price": "¥XX/人 或 免费 或 点击预订链接查看实时价格",
+         "notes": "备注"}
+    ],
+    "budget": [
+        {"category": "餐饮", "description": "¥100×30人", "estimated_cost": "¥3000", "is_per_person": false}
+    ],
+    "action_items": [
+        {"id": "hotel-1", "type": "hotel", "title": "住宿：XX酒店", "description": "...",
+         "recommendations": [], "estimated_cost": "约¥400/人/晚", "time_slot": "Day N",
+         "assignee": "待分配", "priority": "high", "booking_link": "https://... 或 null"}
+    ]
+}
+
+规则：
+1. 价格必须来自飞猪搜索结果，禁止编造价格/航班号/车次号/链接；无价格填"点击预订链接查看实时价格"，该项不计入预算
+2. 收费项（门票、餐饮、演出、交通）必须有对应 budget 条目，description 给出计算式（单价×人数），estimated_cost 给出结果
+3. timeline 每天必须有午餐和晚餐安排；时间从早到晚排列，time_range 必须以指定的 "Day N " 开头
+4. booking_link 只能填飞猪结果中同一具体商家的链接（指名道姓的酒店/餐厅/车次/航班/景点），否则填 null
+5. 若是行程最后一天，必须包含从目的地返回出发地的返程交通；飞猪无返程数据时加一项"需自行预订返程交通"
+6. 只输出该天的安排；type 取值：hotel/transport/activity/restaurant
+"""
+
+
+def _group_label(group_size) -> str:
+    """人数展示标签：已含"人"则原样，否则补上（避免"12人人"）。"""
+    s = str(group_size or "").strip()
+    return s if "人" in s else f"{s}人"
+
+
+def _infer_day_count(params: dict) -> int:
+    """无大纲时从入住/退房日期推断天数，推断不出按 2 天。"""
+    ci, co = params.get("check_in", ""), params.get("check_out", "")
+    try:
+        nights = (datetime.fromisoformat(co) - datetime.fromisoformat(ci)).days
+        if nights > 0:
+            return nights + 1
+    except (ValueError, TypeError):
+        pass
+    return 2
+
+
+def _merge_day_budgets(day_budgets: list) -> list:
+    """按类目合并各天预算行：金额累加、计算式用 + 连接（校验器可逐组验算）。"""
+    merged: dict[str, dict] = {}
+    order = []
+    for rows in day_budgets:
+        for row in rows or []:
+            if not isinstance(row, dict) or not row.get("category") or row.get("is_per_person"):
+                continue
+            cat = str(row["category"])
+            desc = str(row.get("description", "") or "").strip()
+            amount = _money(row.get("estimated_cost"))
+            if cat not in merged:
+                merged[cat] = {"descs": [], "total": 0.0, "has_pending": False}
+                order.append(cat)
+            m = merged[cat]
+            if desc and desc not in m["descs"]:
+                m["descs"].append(desc)
+            if amount is not None:
+                m["total"] += amount
+            else:
+                m["has_pending"] = True
+    result = []
+    for cat in order:
+        m = merged[cat]
+        desc = " + ".join(m["descs"]) if m["descs"] else cat
+        if m["total"] > 0:
+            if m["has_pending"]:
+                desc += "（另有待确认项）"
+            result.append({"category": cat, "description": desc,
+                           "estimated_cost": f"¥{m['total']:.0f}", "is_per_person": False})
+        else:
+            result.append({"category": cat, "description": desc,
+                           "estimated_cost": "待确认", "is_per_person": False})
+    return result
+
+
+def _merge_day_action_items(day_items: list) -> list:
+    """合并各天 action_items，按 id/标题去重，补齐缺失 id。"""
+    seen = set()
+    result = []
+    for items in day_items:
+        for it in items or []:
+            if not isinstance(it, dict) or not it.get("title"):
+                continue
+            key = str(it.get("id") or it.get("title"))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(it)
+    for i, it in enumerate(result):
+        if not it.get("id"):
+            it["id"] = f"item-{i+1}"
+    return result
+
+
+def _generate_plan_by_days(params: dict, flyai_sections: list, outline: dict | None = None,
+                           user_id: str = None, plan_id: str = None) -> dict | None:
+    """按天分片生成方案（仅当整体生成失败时兜底，规避超长输出截断）。
+
+    每天 1 次 LLM 调用（输出短），代码层聚合预算/action_items/房间分配。
+    全部天都失败返回 None（调用方再走 _fallback_structured）。
+    """
+    city = params.get("city", "")
+    group_size = params.get("group_size", "30")
+    origin = params.get("origin", "")
+    check_in = params.get("check_in", "")
+    check_out = params.get("check_out", "")
+
+    outline_days = [d for d in ((outline or {}).get("days") or []) if isinstance(d, dict)]
+    total = len(outline_days) if outline_days else _infer_day_count(params)
+    if total <= 0:
+        return None
+
+    flyai_summary = "\n\n".join(f"【{t}】\n{(d or '')[:1500]}" for t, d in flyai_sections)
+
+    timeline, day_budgets, day_actions, day_summaries = [], [], [], []
+    for day in range(1, total + 1):
+        frame = ""
+        if day <= len(outline_days):
+            frame = f"当天框架（硬约束）：{json.dumps(outline_days[day - 1], ensure_ascii=False)}\n"
+        prev_tail = ""
+        if timeline:
+            prev_tail = "前一天末尾安排（动线衔接用）：" + "；".join(
+                f"{it.get('time_range', '')} {it.get('title', '')}" for it in timeline[-2:]
+            ) + "\n"
+        return_note = (
+            f"当天是行程最后一天，必须包含从{city}返回{origin or '出发地'}的返程交通。\n"
+            if day == total else ""
+        )
+        user_prompt = f"""为以下行程的第 {day}/{total} 天生成结构化 JSON。
+
+城市：{city}；出发地：{origin}；入住：{check_in}；退房：{check_out}；人数：{group_size}人
+{frame}{prev_tail}{return_note}==== 飞猪搜索结果 ====
+{flyai_summary}
+
+time_range 必须以 "Day {day} " 开头（如 "Day {day} 09:00-11:00"）。只输出该天 JSON。
+"""
+        day_result = _llm.complete_json(DAY_SLICE_SYSTEM, user_prompt, max_tokens=2000,
+                                        user_id=user_id, plan_id=plan_id,
+                                        action="generate_plan_day_slice")
+        if not day_result:
+            day_summaries.append(f"Day {day} 生成失败")
+            continue
+        for it in day_result.get("timeline") or []:
+            tr = str(it.get("time_range", "") or "")
+            if f"Day {day}" not in tr:
+                it["time_range"] = f"Day {day} {tr}".strip()
+        timeline.extend(day_result.get("timeline") or [])
+        day_budgets.append(day_result.get("budget") or [])
+        day_actions.append(day_result.get("action_items") or [])
+        day_summaries.append(f"Day {day} 完成")
+
+    if not timeline:
+        return None
+
+    result = {
+        "summary": f"{_group_label(group_size)}{city}行程（{total}天{max(total - 1, 0)}晚，按天分片生成："
+                   + "、".join(day_summaries) + "）",
+        "action_items": _merge_day_action_items(day_actions),
+        "timeline": timeline,
+        "budget": _merge_day_budgets(day_budgets),
+        "room_allocation": [],
+        "budget_per_person": "待估算",
+        "generated_by": "day_slice",
+    }
+
+    # 房间分配用代码计算，不依赖 LLM
+    size_m = re.search(r"\d+", str(group_size))
+    size = int(size_m.group()) if size_m else 0
+    if size > 0:
+        rooms = calculate_room_allocation(size)
+        hotel_item = next((a for a in result["action_items"] if a.get("type") == "hotel"), None)
+        if hotel_item:
+            rec = (hotel_item.get("recommendations") or [{}])[0]
+            for r in rooms:
+                r["hotel_name"] = rec.get("name", hotel_item.get("title", ""))
+                r["hotel_link"] = rec.get("booking_link")
+                if rec.get("price"):
+                    r["price_per_night"] = rec["price"]
+        result["room_allocation"] = rooms
+
+    _recompute_budget_per_person(result, params)
+    return result
 
 
 def calculate_room_allocation(group_size: int, hotel_info: str = "") -> list:

@@ -949,6 +949,23 @@ def api_revise_plan(plan_id: str, req: ReviseRequest, user: dict = Depends(get_c
     }
 
 
+# ── 票价验价 ──────────────────────────────────────────────
+
+@app.post("/api/plan/{plan_id}/verify_prices")
+def api_verify_prices(plan_id: str, user: dict = Depends(get_current_user)):
+    """对方案中的航班/车次重新发起飞猪查询，返回价格对比报告（不修改方案）。"""
+    from . import price_check
+    from . import flyai_client
+
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    report = price_check.verify_plan_prices(plan, flyai_client)
+    if not report["items"]:
+        return {"type": "verify_prices", "message": "方案中没有可验价的航班/车次项", **report}
+    return {"type": "verify_prices", "message": "验价完成", **report}
+
+
 # ── 修订历史 ──────────────────────────────────────────────
 
 @app.get("/api/plan/{plan_id}/revisions")
