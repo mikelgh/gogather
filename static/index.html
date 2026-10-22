@@ -76,8 +76,15 @@
   box-shadow: var(--shadow-sm);
 }
 
-.nav-guide-link {
+/* 顶栏用 space-between 分配剩余空间，指南入口和引导按钮要成组，否则会被撑开 */
+.nav-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-left: 12px;
+}
+
+.nav-guide-link {
   font-size: 13px;
   color: var(--text-muted);
   text-decoration: none;
@@ -92,10 +99,31 @@
   background: var(--primary-bg);
 }
 
+.nav-tour-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.nav-tour-btn:hover {
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
 /* ── Main Container ────────────────────────────────────── */
 .container {
   max-width: 800px;
-  margin: 0;
+  margin: 0 auto;
   padding: 24px;
   padding-bottom: 220px;
 }
@@ -331,20 +359,21 @@
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
 /* ── Chat Input ────────────────────────────────────────── */
+/* 侧栏是 absolute 定位、不占布局宽度，收起时主栏与顶栏都不动，
+   所以这里固定铺满再让 inner 居中，输入框始终和顶栏、中间区域同一条对齐线 */
 .chat-input-area {
   position: fixed;
   bottom: 0;
-  left: 260px;
+  left: 0;
   right: 0;
   background: linear-gradient(to top, var(--bg) 70%, transparent);
   padding: 12px 24px 16px;
   z-index: 50;
-  transition: left 0.3s ease;
 }
 
 .chat-input-inner {
   max-width: 800px;
-  margin: 0;
+  margin: 0 auto;
 }
 
 .chat-input-wrapper {
@@ -523,12 +552,15 @@
   display: flex;
 }
 
-/* ── Sidebar collapsed state ─────────────────────────────── */
+/* ─ Sidebar collapsed state ────────────────────────────── */
+.sidebar {
+  transition: transform 0.3s ease;
+  transform-origin: right center;
+}
+
 .sidebar.collapsed {
-  width: 0;
-  border-right: none;
+  transform: scaleX(0);
   overflow: hidden;
-  padding: 0;
 }
 
 .sidebar-toggle-btn {
@@ -556,10 +588,6 @@
 .sidebar-toggle-btn:hover {
   background: var(--primary-bg);
   color: var(--primary);
-}
-
-.chat-input-area.sidebar-collapsed {
-  left: 0;
 }
 
 @media (max-width: 640px) {
@@ -1867,16 +1895,23 @@
   display: flex;
   height: calc(100vh - 57px);
   margin-top: 57px;
+  position: relative;
 }
 
 .sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
   width: 260px;
-  flex-shrink: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  z-index: 50;
+  transition: transform 0.3s ease;
+}
   max-height: 100%;
 }
 
@@ -2062,7 +2097,7 @@
   /* 窄屏优先保证导航不折行：徽标与指南入口让位给主导航 */
   .brand-logo-cn { display: none; }
   .nav-tab { white-space: nowrap; padding: 7px 12px; }
-  .nav-guide-link { display: none; }
+  .nav-header-actions { display: none; }
   .container { padding: 16px; padding-bottom: 260px; }
   .welcome-card { padding: 14px 16px; border-radius: var(--radius-lg); }
   .welcome-card h1 { font-size: 18px; }
@@ -2352,7 +2387,13 @@
       <button class="nav-tab active" data-view="chat" onclick="switchView('chat')" data-copy="nav.planTab" data-copy-fallback="策划">策划</button>
       <button class="nav-tab" data-view="execution" onclick="switchView('execution')" data-copy="nav.execTab" data-copy-fallback="实施">实施</button>
     </nav>
-    <a class="nav-guide-link" href="/guide" target="_blank" rel="noopener" data-copy="guide.navEntry">使用指南</a>
+    <div class="nav-header-actions">
+      <a class="nav-guide-link" href="/guide" target="_blank" rel="noopener" data-copy="guide.navEntry">使用指南</a>
+      <button class="nav-tour-btn" onclick="startTour()" title="新手引导">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+        <span data-copy="tour.menuEntry" data-copy-fallback="新手引导">新手引导</span>
+      </button>
+    </div>
     <div class="user-menu-wrapper" id="userMenuWrapper" style="display:none;">
       <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()"></div>
       <div class="user-dropdown hidden" id="userDropdown">
@@ -2704,7 +2745,7 @@ async function initAuth() {
     await loadConversations();
     await restorePlan();
     await loadPlanList();
-    // 一次性的新手引导：只在「还没生成过方案」时出现，老用户不打扰
+    // 一次性的新手引导：每个浏览器只弹一次；从地图页带着 ?plan= 回来时直接看方案，不打扰
     if (!window.tourCompleted() && state.planId === null) {
       setTimeout(() => window.startTour(), 600);
     }
@@ -2734,26 +2775,9 @@ async function loadConversations() {
 }
 
 async function restorePlan() {
-  // 全屏地图页"返回方案页"通过 ?plan=<id> 精确恢复对应方案
-  const urlPlanId = new URLSearchParams(window.location.search).get('plan');
-  let planId = urlPlanId || localStorage.getItem('juxing_planId');
-  if (!planId) {
-    // 没有 planId 时，加载最近的方案
-    try {
-      const resp = await fetch('/api/plans', {
-        headers: { 'Authorization': `Bearer ${state.token}` }
-      });
-      if (resp.ok) {
-        const plans = await resp.json();
-        if (plans.length > 0) {
-          planId = plans[0].id;
-        }
-      }
-    } catch (e) {
-      console.error('Failed to list plans:', e);
-      return;
-    }
-  }
+  // 只有全屏地图页「返回方案页」（?plan=<id>）才恢复指定方案；
+  // 首页默认停在新建方案的对话态，不再自动打开最近一份方案
+  const planId = new URLSearchParams(window.location.search).get('plan');
   if (!planId) return;
   try {
     const resp = await fetch(`/api/plan/${planId}`, {
@@ -2774,7 +2798,7 @@ async function restorePlan() {
       };
       state.extractedParams = plan.params || {};
       localStorage.setItem('juxing_planId', planId);
-      if (urlPlanId) history.replaceState(null, '', '/');
+      history.replaceState(null, '', '/');
       showPlan(plan, planId, state.structured);
     } else {
       localStorage.removeItem('juxing_planId');
@@ -2896,17 +2920,8 @@ function toggleSidebar() {
 function toggleSidebarCollapse() {
   const sidebar = document.getElementById('sidebar');
   const btn = document.getElementById('sidebarCollapseBtn');
-  const inputArea = document.querySelector('.chat-input-area');
   sidebar.classList.toggle('collapsed');
-  if (sidebar.classList.contains('collapsed')) {
-    btn.innerHTML = '›';
-    btn.style.left = '0';
-    inputArea.classList.add('sidebar-collapsed');
-  } else {
-    btn.innerHTML = '‹';
-    btn.style.left = '260px';
-    inputArea.classList.remove('sidebar-collapsed');
-  }
+  btn.innerHTML = sidebar.classList.contains('collapsed') ? '›' : '‹';
 }
 
 function toggleFilterPanel(name) {
@@ -3595,11 +3610,13 @@ function showPlan(plan, planId, structured = {}) {
   document.getElementById('planTitle').textContent = city ? `${city} 出行方案` : '出行方案';
   document.getElementById('planSummary').textContent = (structured.summary || plan.markdown?.slice(0, 150) + '...' || '方案已生成，请查看时间线、预算和待办事项。') + tierBadge;
   
-  // 更新封面图（如果有分享码）
+  // 更新封面图：没有分享码的方案要显式回落，否则会留着上一份方案的封面
   const shareCode = plan.share_code;
   const coverContainer = document.getElementById('planCoverContainer');
-  if (shareCode && coverContainer) {
-    coverContainer.innerHTML = `<img src="/share/${shareCode}/cover.png" alt="封面" style="width: 100%; height: 100%; object-fit: cover;">`;
+  if (coverContainer) {
+    coverContainer.innerHTML = shareCode
+      ? `<img src="/share/${shareCode}/cover.png" alt="封面" style="width: 100%; height: 100%; object-fit: cover;">`
+      : '<span style="font-size: 48px; opacity: 0.3;">🗺️</span>';
   }
   
   renderTimeline(structured);
