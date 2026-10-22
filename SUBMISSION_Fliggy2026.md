@@ -1,5 +1,7 @@
 # 2026 飞猪 AI 旅行创新大赛 — 参赛作品提交文案
 
+> **Issue 标题**：`【2026飞猪AI旅行创新大赛】 -- GoGather 聚行 —— 团体出行的「可执行方案」生成器`
+>
 > 本文件按官方 Issue 模板 `fliggy-ai-travel-innovation-2026.md` 的章节顺序撰写，
 > 可直接整段粘贴到提交 Issue 的正文框中。
 > 提交链接：https://github.com/modelstudioai/modelstudioai.github.io/issues/new?template=fliggy-ai-travel-innovation-2026.md
@@ -14,7 +16,7 @@
 
 ## 团队 / 作者与奖品领取人
 
-- 团队名称：`待填写`
+- 团队名称：睿欣达
 - 主要提交人 GitHub ID（仅 1 位，必填）：`mikelgh`
 - 其他成员（可选，仅用于署名）：无
 
@@ -124,7 +126,7 @@ GoGather 把「一句话描述活动」变成「一份可预订、可跟进、�
   - **地图**：Leaflet.js + 高德瓦片；时间线/提醒/封面共用 `map_component.js`
   - **后端**：FastAPI + SQLite（用户、方案、对话、AI 用量、版本历史）
   - **前端**：原生 HTML / CSS / JS，无框架
-  - **部署**：单服务器 uvicorn + Nginx + HTTPS
+  - **部署**：单服务器 uvicorn + Caddy 反向代理 + HTTPS
 
 ---
 
@@ -157,38 +159,27 @@ GoGather 把「一句话描述活动」变成「一份可预订、可跟进、�
 
 ### 截图
 
-截图已挂在公开 Demo 域名下，**下面这段 Markdown 可直接整段粘贴进 Issue，图片会自动渲染**：
-
-```markdown
 **① 对话态 + 大纲确认卡片**
 
 用户一句话描述活动，百炼抽取参数后先出逐日大纲卡片供确认，确认（或提出修改）后再生成完整方案。
 
-![对话态与行程大纲确认卡片](https://gogather.partystack.cn/static/submission/chat_outline_card.png)
+![对话态与行程大纲确认卡片](https://gogather.partystack.cn/static/submission/chat_outline_card.png?v=2)
 
 **② 分享页：AI 封面 + 真实价格 + 一键预订**
 
 团员无需注册即可查看。每条行程带真实价格与「飞猪预订/验价」链接。
 
-![分享页：AI 生成封面、地图时间线、真实价格与预订入口](https://gogather.partystack.cn/static/submission/share_h5ydji.png)
+![分享页：AI 生成封面、地图时间线、真实价格与预订入口](https://gogather.partystack.cn/static/submission/share_h5ydji.png?v=2)
 
 **③ 全屏地图时间线**
 
 18 个地点编号徽章、按天着色、自动播放；重叠地点环形偏移避免遮挡。
 
-![全屏地图时间线](https://gogather.partystack.cn/static/submission/map_h5ydji.png)
+![全屏地图时间线](https://gogather.partystack.cn/static/submission/map_h5ydji.png?v=2)
 
 **④ 使用指南页**
 
-![使用指南页](https://gogather.partystack.cn/static/submission/guide.png)
-```
-
-> 如果 Issue 编辑器不接受外链图片，改为**下载后再拖拽上传**：
-> 直接在浏览器打开 `https://gogather.partystack.cn/static/submission/` 下的图片另存到本地，
-> 再拖进 Issue 输入框（GitHub 会自动上传到 `user-attachments` 并生成永久链接）。
-
-> 建议补 2 张需要登录态的：**完整方案页**（预算明细 / 分房方案 / 行动项）与
-> **微信分享卡片**（把 `/share/h5ydji` 发到微信，看 OpenGraph 抓取的封面效果）。
+![使用指南页](https://gogather.partystack.cn/static/submission/guide.png?v=2)
 
 ---
 
