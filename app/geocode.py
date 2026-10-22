@@ -249,12 +249,24 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
 
 
 def geocode_timeline(timeline: list, city: str) -> list:
-    """给 timeline 每项加上 lat/lng 字段。"""
+    """给 timeline 每项加上 lat/lng 字段。
+
+    坐标来源优先级：
+    1. timeline 项自带的 lat/lng（飞猪坐标，LLM 透传 + 校验）
+    2. 硬编码 POI 表 / 文本匹配
+    3. 高德地理编码 API（需配置 AMAP_API_KEY）
+    """
     result = []
     for item in timeline:
         item_copy = dict(item)
-        loc = item.get("location", "")
+        if item_copy.get("lat") and item_copy.get("lng"):
+            result.append(item_copy)
+            continue
+        loc = item.get("location", "") or item.get("title", "")
         coords = geocode(loc, city)
+        if not coords:
+            from . import amap_geocode
+            coords = amap_geocode.geocode(loc, city.split("+")[0].strip() if city else "")
         if coords:
             item_copy["lat"] = coords[0]
             item_copy["lng"] = coords[1]

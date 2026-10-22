@@ -40,6 +40,8 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
             "location": "杭州白金汉爵大酒店",
             "booking_link": "https://router.feizhu.com/...",
             "price": "¥400/间/晚（飞猪实时价）",
+            "lat": 30.2889,
+            "lng": 120.1019,
             "notes": "统一办理入住，领取房卡"
         }}
     ],
@@ -211,6 +213,7 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 10. **不可预订项目禁止附带链接**：车上/自备早餐、集合签到、自由活动、模糊推荐（如"周边中档餐厅"）等没有飞猪具体商家对应的项目，booking_link 必须填 null，禁止复制无关链接凑数
 11. **餐饮必须落到具体商家**：若飞猪美食结果列出任何具体商家（餐厅或酒店宴会场地，即使注明"数据有限"也必须使用），午餐/晚餐项必须在 notes 列出 2-3 家候选并注明特色（有人均必须写出），booking_link 填主推荐商家；不同餐次推荐不同组合，备选优先选当日活动区域附近；仅当美食结果一个商家都没列出时才允许模糊推荐
 12. **交通项目必须保留航班号/车次号**：若飞猪结果中包含航班号（如"川航 3U6710"）或车次号（如"G7502"），必须在 timeline 的 title 或 notes 中保留该信息。例如 title 应为"广州飞往成都（川航 3U6710）"或 notes 中注明"航班号：川航 3U6710"
+13. **坐标透传（只搬运不生成）**：若飞猪结果中包含「坐标: 30.74,104.13」信息，且 timeline 项的 location 对应该商家，则在该项中添加 `"lat": 30.74, "lng": 104.13`（浮点数）。**严禁编造坐标**：飞猪结果中没有坐标信息的项目，不得添加 lat/lng 字段（省略即可，系统会另行解析）。交通路线类项目（机场→酒店等）不填坐标
 请输出严格的 JSON 格式方案。
 """
 
@@ -219,7 +222,47 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
     if not result:
         return _fallback_structured(params, flyai_sections)
 
+    _validate_coords(result, flyai_sections)
     return result
+
+
+def _validate_coords(result: dict, flyai_sections: list) -> None:
+    """坐标真实性校验：LLM 输出的 lat/lng 必须来自飞猪原文，否则删除（防止编造坐标）。
+
+    允许少量精度误差（0.001°，约 100 米）——LLM 可能截断小数位。
+    """
+    import re as _re
+
+    # 收集飞猪原文中的所有坐标
+    known = set()
+    for _, data in flyai_sections:
+        for m in _re.finditer(r"坐标[:：]\s*([\d.]+)\s*[,，]\s*([\d.]+)", data or ""):
+            known.add((round(float(m.group(1)), 3), round(float(m.group(2)), 3)))
+
+    if not known:
+        # 原文无任何坐标 → 全部移除 LLM 输出的坐标
+        for item in result.get("timeline", []):
+            item.pop("lat", None)
+            item.pop("lng", None)
+        return
+
+    def _known_coord(lat, lng) -> bool:
+        for klat, klng in known:
+            if abs(klat - round(float(lat), 3)) <= 0.001 and abs(klng - round(float(lng), 3)) <= 0.001:
+                return True
+        return False
+
+    for item in result.get("timeline", []):
+        lat, lng = item.get("lat"), item.get("lng")
+        if lat is None or lng is None:
+            continue
+        try:
+            if not _known_coord(lat, lng):
+                item.pop("lat", None)
+                item.pop("lng", None)
+        except (TypeError, ValueError):
+            item.pop("lat", None)
+            item.pop("lng", None)
 
 
 def _fallback_structured(params: dict, flyai_sections: list) -> dict:

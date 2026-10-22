@@ -189,6 +189,10 @@ def format_structured(data, limit: int = 8) -> str:
             parts.append(f"星级/等级: {star}")
         if it.get("address"):
             parts.append(f"地址: {it['address']}")
+        # 坐标（真实数据，供 LLM 透传到 timeline 的 lat/lng 字段）
+        lat, lng = it.get("latitude"), it.get("longitude")
+        if lat and lng:
+            parts.append(f"坐标: {lat},{lng}")
         if it.get("interestsPoi"):
             parts.append(f"位置: {it['interestsPoi']}")
         desc = (it.get("description") or "").strip()

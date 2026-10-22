@@ -23,6 +23,7 @@ def get_env(name: str, default: str = "") -> str:
 
 DASHSCOPE_API_KEY = get_env("DASHSCOPE_API_KEY", "")
 FLYAI_API_KEY = get_env("FLYAI_API_KEY", "")
+AMAP_API_KEY = get_env("AMAP_API_KEY", "")  # 高德 Web 服务 key（地理编码备用）
 QWEN_MODEL = get_env("QWEN_MODEL", "qwen-plus")
 QWEN_MODEL_FAST = get_env("QWEN_MODEL_FAST", "qwen-turbo")
 QWEN_BASE_URL = get_env(
