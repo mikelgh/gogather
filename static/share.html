@@ -632,17 +632,83 @@ async function renderShareMap() {
     }).addTo(map);
     setTimeout(() => map.invalidateSize(), 100);
     const dayColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-    const markers = points.map(item => {
+    
+    // 创建数字图标
+    const createNumberIcon = (num, color) => {
+      return L.divIcon({
+        className: 'number-marker',
+        html: `<div style="background: ${color}; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${num}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+    };
+    
+    const markers = [];
+    const markerList = [];
+    
+    points.forEach((item, idx) => {
       const dayMatch = (item.time_range || '').match(/Day\s*(\d+)/i);
       const dayNum = dayMatch ? parseInt(dayMatch[1]) : 1;
       const color = dayColors[(dayNum - 1) % dayColors.length];
-      const marker = L.circleMarker([item.lat, item.lng], {
-        radius: 10, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8,
+      const marker = L.marker([item.lat, item.lng], {
+        icon: createNumberIcon(idx + 1, color),
       }).addTo(map);
-      marker.bindPopup(`<b>${item.title}</b><br>${item.time_range || ''}<br>${item.location || ''}`);
-      return marker;
+      marker.bindPopup(`<b>${idx + 1}. ${item.title}</b><br>${item.time_range || ''}<br>${item.location || ''}`);
+      markers.push(marker);
+      markerList.push({ marker, item, idx });
     });
+    
+    // 绘制带箭头的连线
+    if (points.length > 1) {
+      const latlngs = points.map(p => [p.lat, p.lng]);
+      // 主路线
+      L.polyline(latlngs, { color: '#6366f1', weight: 3, opacity: 0.8, dashArray: '10, 10' }).addTo(map);
+      // 箭头（每段中间添加）
+      for (let i = 0; i < latlngs.length - 1; i++) {
+        const midLat = (latlngs[i][0] + latlngs[i + 1][0]) / 2;
+        const midLng = (latlngs[i][1] + latlngs[i + 1][1]) / 2;
+        const angle = Math.atan2(latlngs[i + 1][0] - latlngs[i][0], latlngs[i + 1][1] - latlngs[i][1]) * 180 / Math.PI;
+        const arrowIcon = L.divIcon({
+          className: 'route-arrow',
+          html: `<div style="color: #6366f1; font-size: 20px; transform: rotate(${-angle + 90}deg);">▶</div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        });
+        L.marker([midLat, midLng], { icon: arrowIcon, interactive: false }).addTo(map);
+      }
+    }
+    
     if (markers.length > 0) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.1));
+    
+    // 添加地点列表（点击切换）
+    const listHtml = markerList.map(({ item, idx }) => `
+      <div class="map-location-item" data-idx="${idx}" style="padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 8px;">
+        <span style="background: var(--primary); color: white; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;">${idx + 1}</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.title || ''}</div>
+          <div style="font-size: 11px; color: var(--text-muted);">${item.time_range || ''}</div>
+        </div>
+      </div>
+    `).join('');
+    
+    const listContainer = document.createElement('div');
+    listContainer.className = 'map-location-list';
+    listContainer.style.cssText = 'max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);';
+    listContainer.innerHTML = listHtml;
+    container.parentNode.insertBefore(listContainer, container.nextSibling);
+    
+    // 点击事件
+    listContainer.querySelectorAll('.map-location-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx);
+        const { marker, item } = markerList[idx];
+        map.setView([item.lat, item.lng], 15);
+        marker.openPopup();
+        // 高亮当前项
+        listContainer.querySelectorAll('.map-location-item').forEach(e => e.style.background = '');
+        el.style.background = 'var(--primary-bg)';
+      });
+    });
   } catch (err) {
     console.error('Map render failed:', err);
   }
