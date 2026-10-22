@@ -531,7 +531,20 @@ body {
   font-size: 12px;
 }
 
+#shareMapSideLayout { display: none; gap: 14px; margin-bottom: 16px; align-items: stretch; }
+#shareMapSideLayout.visible { display: flex; }
+#shareMapSideLayout #shareMap { flex: 1; min-width: 0; height: 420px; margin-bottom: 0; border-radius: 12px; overflow: hidden; }
+.map-side-panel { width: 320px; height: 420px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.map-side-panel .panel-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border-light); flex-shrink: 0; }
+.map-side-panel .panel-title { font-size: 14px; font-weight: 600; }
+.map-side-panel .panel-count { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+#shareMapLocationList { flex: 1; overflow-y: auto; }
+
 @media (max-width: 640px) {
+  #shareMapSideLayout.visible { flex-direction: column; }
+  #shareMapSideLayout #shareMap { height: 300px; flex: none; }
+  .map-side-panel { width: 100%; height: auto; }
+  #shareMapLocationList { max-height: 220px; }
   .container { padding: 16px; }
   .plan-header { padding: 20px; }
   .budget-grid { grid-template-columns: repeat(2, 1fr); }
@@ -621,19 +634,24 @@ let shareMapInst = null;
 
 async function renderShareMap() {
   const container = document.getElementById('shareMap');
-  if (!container) return;
+  const layout = document.getElementById('shareMapSideLayout');
+  if (!container || !layout) return;
   try {
     if (shareMapInst) { shareMapInst.destroy(); shareMapInst = null; }
-    const oldList = document.getElementById('shareMapLocationList');
-    if (oldList) oldList.remove();
+    container.innerHTML = '';
+    layout.classList.remove('visible');
     const resp = await fetch(`/api/share/${code}/map`);
-    if (!resp.ok) { container.style.display = 'none'; return; }
+    if (!resp.ok) { layout.style.display = 'none'; return; }
     const data = await resp.json();
     const points = (data.timeline || []).filter(t => t.lat && t.lng);
-    if (points.length === 0) { container.style.display = 'none'; return; }
-    container.style.display = 'block';
+    if (points.length === 0) { layout.style.display = 'none'; return; }
+    layout.classList.add('visible');
+    document.getElementById('shareMapLocCount').textContent = `${points.length} 个地点 · 点击定位`;
     shareMapInst = GoGatherMap.create(container, points, {
-      listId: 'shareMapLocationList',
+      layout: 'side',
+      listEl: document.getElementById('shareMapLocationList'),
+      showLocation: true,
+      compact: true,
       fullscreenUrl: `/map/${code}`,
     });
   } catch (err) {
@@ -707,7 +725,16 @@ function renderPlan(plan) {
     html += `
       <div class="section">
         <div class="section-title">行程安排</div>
-        <div id="shareMap" style="height: 350px; margin-bottom: 16px; border-radius: 12px; overflow: hidden;"></div>
+        <div id="shareMapSideLayout">
+          <div id="shareMap"></div>
+          <div class="map-side-panel">
+            <div class="panel-head">
+              <div class="panel-title">📍 地点列表</div>
+              <div class="panel-count" id="shareMapLocCount"></div>
+            </div>
+            <div id="shareMapLocationList"></div>
+          </div>
+        </div>
         ${timeline.map((item, i) => `
           <div class="timeline-item">
             <div class="timeline-time">${item.time_range || ''}</div>
