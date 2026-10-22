@@ -2838,20 +2838,20 @@ async function loadConversations() {
     });
     if (resp.ok) {
       const conversations = await resp.json();
-      if (conversations.length > 0) {
-        state.conversation = conversations;
-        // Render existing conversations
-        conversations.forEach(msg => {
-          // 大纲消息带结构化 meta，直接还原成卡片；否则退回纯文本气泡
-          if (msg.meta && msg.meta.type === 'outline' && msg.meta.outline) {
-            showOutlineCard(msg.meta.outline, true);
-          } else {
-            addMessage(msg.role, msg.content, null);
-          }
-        });
-        // 回放完历史才算“有消息”，否则欢迎卡会压在旧对话上面
-        applyLayoutState();
-      }
+      state.conversation = conversations;
+      // 无条件重建消息区：同页切换账号时，空历史必须清掉上个账号的聊天 DOM，
+      // 非空也必须从头回放而不是追加（否则两个账号的消息会混在一起）
+      document.getElementById('chatMessages').innerHTML = '';
+      conversations.forEach(msg => {
+        // 大纲消息带结构化 meta，直接还原成卡片；否则退回纯文本气泡
+        if (msg.meta && msg.meta.type === 'outline' && msg.meta.outline) {
+          showOutlineCard(msg.meta.outline, true);
+        } else {
+          addMessage(msg.role, msg.content, null);
+        }
+      });
+      // 回放完历史才算“有消息”，否则欢迎卡会压在旧对话上面
+      applyLayoutState();
     }
   } catch (e) {
     console.error('Failed to load conversations:', e);
@@ -3102,6 +3102,8 @@ async function doAuthSubmit(username, password, captchaVerifyParam) {
     localStorage.setItem('juxing_user', JSON.stringify(data.user));
 
     document.getElementById('authModal').classList.add('hidden');
+    // 登录/注册成功先重置界面：同页换账号时清掉上一账号可能残留的聊天/方案/地图
+    startOver();
     showUserMenu();
     showToast(state.authMode === 'login' ? '登录成功' : '注册成功', 'success');
     // 会话/方案列表加载与新手引导不阻塞返回：验证码回调若等待过久，
@@ -3110,7 +3112,6 @@ async function doAuthSubmit(username, password, captchaVerifyParam) {
       try {
         await loadConversations();
         await restorePlan();
-        await loadPlanList();
         if (!window.tourCompleted() && state.planId === null) {
           setTimeout(() => window.startTour(), 600);
         }
@@ -3282,6 +3283,11 @@ function logout() {
   localStorage.removeItem('juxing_user');
   document.getElementById('userMenuWrapper').style.display = 'none';
   document.getElementById('userDropdown').classList.add('hidden');
+  // 彻底重置界面（聊天/方案/地图），防止下一个账号看到上一个账号的会话
+  startOver();
+  document.getElementById('sidebarTitle').textContent = '我的方案';
+  document.getElementById('planList').innerHTML =
+    `<li class="plan-list-empty">${t('empty.plans', '还没有方案')}<small>${t('empty.plansHint', '在下方描述你要办的活动，AI 会给出完整出行方案')}</small></li>`;
   document.getElementById('authModal').classList.remove('hidden');
   document.getElementById('authUsername').value = '';
   document.getElementById('authPassword').value = '';
