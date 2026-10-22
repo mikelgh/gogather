@@ -406,6 +406,22 @@ def get_user_by_taobao_id(taobao_id: str) -> dict | None:
     return dict(row)
 
 
+def update_username(user_id: str, username: str) -> dict | None:
+    """改昵称；昵称被占用（UNIQUE 冲突）或用户不存在时返回 None。"""
+    conn = _get_conn()
+    try:
+        cur = conn.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
+        if cur.rowcount == 0:
+            return None
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+
 def create_alipay_user(user_id: str, username: str, alipay_id: str, avatar_url: str = "") -> dict | None:
     from datetime import datetime
     conn = _get_conn()

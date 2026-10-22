@@ -240,6 +240,12 @@ const API_BASE = '';
 let token = '';
 let username = '';
 
+function esc(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 // Check authentication
 function checkAuth() {
   // Use same token storage as main page
@@ -339,7 +345,7 @@ async function loadUsers() {
     const tbody = document.getElementById('usersBody');
     tbody.innerHTML = users.map(u => `
       <tr>
-        <td>${u.username}</td>
+        <td>${esc(u.username)}</td>
         <td>${u.github_id || '-'}</td>
         <td>${u.plan_count}</td>
         <td>${u.ai_plan_count}</td>
@@ -361,7 +367,7 @@ async function loadPlans() {
     tbody.innerHTML = plans.map(p => `
       <tr>
         <td><code>${p.id}</code></td>
-        <td>${p.username || p.user_id}</td>
+        <td>${esc(p.username || p.user_id)}</td>
         <td>${(p.summary || '').substring(0, 50)}${(p.summary || '').length > 50 ? '...' : ''}</td>
         <td>${new Date(p.created_at).toLocaleDateString('zh-CN')}</td>
         <td>${p.used_llm ? '<span class="badge badge-primary">是</span>' : '<span class="badge badge-secondary">否</span>'}</td>
@@ -394,7 +400,7 @@ async function loadAIUsage() {
     const tbody = document.getElementById('usageBody');
     tbody.innerHTML = usage.by_user.map(u => `
       <tr>
-        <td>${u.username}</td>
+        <td>${esc(u.username)}</td>
         <td>${u.calls}</td>
         <td>${u.tokens ? u.tokens.toLocaleString() : '0'}</td>
       </tr>

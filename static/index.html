@@ -137,7 +137,7 @@ body {
   max-width: 800px;
   margin: 0;
   padding: 24px;
-  padding-bottom: 320px;
+  padding-bottom: 220px;
 }
 
 /* ── Animations ────────────────────────────────────────── */
@@ -190,17 +190,18 @@ body {
 .animate-in-delay-3 { animation-delay: 0.3s; }
 
 /* ── Chat View ─────────────────────────────────────────── */
-.chat-view { display: flex; flex-direction: column; gap: 24px; }
+.chat-view { display: flex; flex-direction: column; gap: 16px; }
 
 .welcome-card {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 50%, #a78bfa 100%);
   border-radius: var(--radius-xl);
-  padding: 32px 24px 28px;
+  padding: 18px 24px;
   color: white;
   text-align: center;
   position: relative;
   overflow: hidden;
   animation: scaleIn 0.5s ease both;
+  transition: all 0.4s ease;
 }
 
 .welcome-card::before {
@@ -208,59 +209,28 @@ body {
   position: absolute;
   top: -50%;
   right: -30%;
-  width: 300px;
-  height: 300px;
+  width: 200px;
+  height: 200px;
   background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
   border-radius: 50%;
 }
 
-.welcome-card::after {
-  content: '';
-  position: absolute;
-  bottom: -40%;
-  left: -20%;
-  width: 250px;
-  height: 250px;
-  background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
-  border-radius: 50%;
-}
+.welcome-card::after { display: none; }
 
 .welcome-card h1 {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin: 0;
   position: relative;
   z-index: 1;
 }
 
-.welcome-card p {
-  opacity: 0.9;
-  font-size: 13px;
-  max-width: 460px;
-  margin: 0 auto;
-  position: relative;
-  z-index: 1;
-  line-height: 1.6;
-}
-
-.feature-pills {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 16px;
-  flex-wrap: wrap;
-  position: relative;
-  z-index: 1;
-}
-
-.feature-pill {
-  padding: 5px 12px;
-  background: rgba(255,255,255,0.18);
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.15);
+.welcome-card.hidden {
+  max-height: 0;
+  padding: 0 24px;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
 }
 
 .chat-messages {
@@ -389,8 +359,9 @@ body {
   left: 260px;
   right: 0;
   background: linear-gradient(to top, var(--bg) 70%, transparent);
-  padding: 20px 24px 24px;
+  padding: 12px 24px 16px;
   z-index: 50;
+  transition: left 0.3s ease;
 }
 
 .chat-input-inner {
@@ -509,6 +480,112 @@ body {
 
 .transport-mode-btn.active:hover {
   background: var(--primary-dark);
+}
+
+/* ── Filter Row (compact option selector) ────────────────── */
+.filter-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 800px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  font-weight: 500;
+}
+
+.filter-chip:hover {
+  border-color: var(--primary-light);
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
+.filter-chip .filter-label {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.filter-chip .filter-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.filter-chip .filter-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.filter-chip.active .filter-arrow {
+  transform: rotate(180deg);
+}
+
+.filter-panel {
+  display: none;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  max-width: 800px;
+  animation: fadeIn 0.2s ease;
+}
+
+.filter-panel.show {
+  display: flex;
+}
+
+/* ── Sidebar collapsed state ─────────────────────────────── */
+.sidebar.collapsed {
+  width: 0;
+  border-right: none;
+  overflow: hidden;
+  padding: 0;
+}
+
+.sidebar-toggle-btn {
+  position: fixed;
+  left: 260px;
+  top: 70px;
+  width: 20px;
+  height: 40px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  z-index: 100;
+  transition: left 0.3s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.sidebar-toggle-btn:hover {
+  background: var(--primary-bg);
+  color: var(--primary);
+}
+
+.chat-input-area.sidebar-collapsed {
+  left: 0;
+}
+
+@media (max-width: 640px) {
+  .sidebar-toggle-btn { display: none; }
 }
 
 /* ── Transport Quick Reply ───────────────────────────────── */
@@ -1889,16 +1966,15 @@ body {
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 640px) {
   .header { padding: 10px 16px; }
-  .container { padding: 16px; padding-bottom: 360px; }
-  .welcome-card { padding: 24px 16px 20px; border-radius: var(--radius-lg); }
-  .welcome-card h1 { font-size: 20px; }
-  .welcome-card p { font-size: 12px; }
+  .container { padding: 16px; padding-bottom: 260px; }
+  .welcome-card { padding: 14px 16px; border-radius: var(--radius-lg); }
+  .welcome-card h1 { font-size: 18px; }
   .feature-pills { gap: 6px; }
   .feature-pill { font-size: 11px; padding: 4px 10px; }
   .budget-grid { grid-template-columns: repeat(2, 1fr); }
   .plan-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .message-content { max-width: 85%; font-size: 13px; }
-  .chat-input-area { padding: 16px; left: 0; }
+  .chat-input-area { padding: 12px 16px 16px; left: 0; }
   .plan-actions { flex-direction: column; }
   .plan-action-btn { justify-content: center; }
   .progress-stats { gap: 12px; flex-wrap: wrap; }
@@ -2143,6 +2219,22 @@ body {
   </div>
 </div>
 
+<!-- 修改昵称 -->
+<div class="auth-modal hidden" id="nicknameModal" onclick="if(event.target === this) closeNicknameModal()">
+  <div class="auth-card">
+    <h2>修改昵称</h2>
+    <p class="auth-subtitle">2-20 位中英文、数字、下划线、点或减号</p>
+    <form class="auth-form" onsubmit="saveNickname(event)">
+      <div class="auth-field">
+        <label for="nicknameInput">新昵称</label>
+        <input type="text" id="nicknameInput" maxlength="20" autocomplete="off">
+      </div>
+      <div class="auth-error" id="nicknameError"></div>
+      <button type="submit" class="auth-submit" id="nicknameSubmitBtn">保存</button>
+    </form>
+  </div>
+</div>
+
 <!-- Header -->
 <header class="header">
   <div class="header-inner">
@@ -2160,6 +2252,10 @@ body {
       <div class="user-dropdown hidden" id="userDropdown">
         <div class="user-dropdown-header">
           <div class="user-dropdown-name" id="dropdownUsername"></div>
+        </div>
+        <div class="user-dropdown-item" onclick="openNicknameModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          修改昵称
         </div>
         <div class="user-dropdown-item danger" onclick="logout()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -2185,6 +2281,7 @@ body {
       <li class="plan-list-empty">暂无方案</li>
     </ul>
   </aside>
+  <button class="sidebar-toggle-btn" id="sidebarCollapseBtn" onclick="toggleSidebarCollapse()" title="折叠侧边栏">‹</button>
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
   <!-- Main Content -->
@@ -2192,15 +2289,8 @@ body {
 
   <!-- Chat View -->
   <div class="chat-view" id="chatView">
-    <div class="welcome-card">
+    <div class="welcome-card" id="welcomeCard">
       <h1>说一场活动，我来安排</h1>
-      <p>告诉 AI 你的聚会/活动需求，自动拉取飞猪真实数据，生成可执行的出行方案</p>
-      <div class="feature-pills">
-        <span class="feature-pill">飞猪实时数据</span>
-        <span class="feature-pill">智能预算规划</span>
-        <span class="feature-pill">一键分享</span>
-        <span class="feature-pill">实施跟踪</span>
-      </div>
     </div>
 
     <div class="chat-messages" id="chatMessages"></div>
@@ -2222,33 +2312,47 @@ body {
             </svg>
           </button>
         </div>
-        <div class="quick-actions">
+        <div class="quick-actions" id="sceneActions">
           <button class="quick-action" onclick="quickInput('30人同学聚会，杭州，10月25-26日')">同学聚会</button>
           <button class="quick-action" onclick="quickInput('公司团建，20人，海边')">公司团建</button>
           <button class="quick-action" onclick="quickInput('婚礼出行，50人，三亚')">婚礼出行</button>
           <button class="quick-action" onclick="quickInput('朋友旅行，4人，成都，周末')">朋友旅行</button>
         </div>
-        <div class="quick-actions" id="budgetTierActions">
-          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">预算：</span>
+        <div class="filter-row" id="filterRow">
+          <button class="filter-chip" id="filterBudget" onclick="toggleFilterPanel('budget')">
+            <span class="filter-label">预算</span>
+            <span class="filter-value" id="filterBudgetVal">舒适型</span>
+            <span class="filter-arrow">▾</span>
+          </button>
+          <button class="filter-chip" id="filterTransport" onclick="toggleFilterPanel('transport')">
+            <span class="filter-label">交通</span>
+            <span class="filter-value" id="filterTransportVal">自动推荐</span>
+            <span class="filter-arrow">▾</span>
+          </button>
+          <button class="filter-chip" id="filterPref" onclick="toggleFilterPanel('pref')">
+            <span class="filter-label">偏好</span>
+            <span class="filter-value" id="filterPrefVal">全部</span>
+            <span class="filter-arrow">▾</span>
+          </button>
+        </div>
+        <div class="filter-panel" id="filterPanelBudget">
           <button class="quick-action budget-tier-btn" data-tier="经济型" onclick="selectBudgetTier('经济型')">💰 经济型</button>
           <button class="quick-action budget-tier-btn active" data-tier="舒适型" onclick="selectBudgetTier('舒适型')">💎 舒适型</button>
           <button class="quick-action budget-tier-btn" data-tier="豪华型" onclick="selectBudgetTier('豪华型')">👑 豪华型</button>
         </div>
-        <div class="quick-actions" id="transportModeActions">
-          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">交通：</span>
+        <div class="filter-panel" id="filterPanelTransport">
           <button class="quick-action transport-mode-btn active" data-mode="auto" onclick="selectTransportMode('auto')">🤖 自动推荐</button>
-          <button class="quick-action transport-mode-btn" data-mode="train" onclick="selectTransportMode('train')">🚄 高铁/动车</button>
+          <button class="quick-action transport-mode-btn" data-mode="train" onclick="selectTransportMode('train')"> 高铁/动车</button>
           <button class="quick-action transport-mode-btn" data-mode="flight" onclick="selectTransportMode('flight')">✈️ 飞机</button>
         </div>
-        <div class="quick-actions" id="preferenceTags">
-          <span style="font-size:12px;color:var(--text-muted);line-height:28px;">偏好：</span>
+        <div class="filter-panel" id="filterPanelPref">
           <button class="quick-action pref-tag-btn" data-pref="美食" onclick="togglePreference('美食')">🍜 美食</button>
           <button class="quick-action pref-tag-btn" data-pref="风景" onclick="togglePreference('风景')">🏞️ 风景</button>
           <button class="quick-action pref-tag-btn" data-pref="休闲" onclick="togglePreference('休闲')">☕ 休闲</button>
           <button class="quick-action pref-tag-btn" data-pref="文化" onclick="togglePreference('文化')">🏛️ 文化</button>
           <button class="quick-action pref-tag-btn" data-pref="户外" onclick="togglePreference('户外')">🏕️ 户外</button>
           <button class="quick-action pref-tag-btn" data-pref="亲子" onclick="togglePreference('亲子')">👨‍👩‍👧 亲子</button>
-          <button class="quick-action pref-tag-btn" data-pref="夜生活" onclick="togglePreference('夜生活')">🌃 夜生活</button>
+          <button class="quick-action pref-tag-btn" data-pref="夜生活" onclick="togglePreference('夜生活')"> 夜生活</button>
           <button class="quick-action pref-tag-btn" data-pref="购物" onclick="togglePreference('购物')">🛍️ 购物</button>
         </div>
       </div>
@@ -2665,6 +2769,54 @@ function toggleSidebar() {
   overlay.classList.toggle('show');
 }
 
+function toggleSidebarCollapse() {
+  const sidebar = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebarCollapseBtn');
+  const inputArea = document.querySelector('.chat-input-area');
+  sidebar.classList.toggle('collapsed');
+  if (sidebar.classList.contains('collapsed')) {
+    btn.innerHTML = '›';
+    btn.style.left = '0';
+    inputArea.classList.add('sidebar-collapsed');
+  } else {
+    btn.innerHTML = '‹';
+    btn.style.left = '260px';
+    inputArea.classList.remove('sidebar-collapsed');
+  }
+}
+
+function toggleFilterPanel(name) {
+  const panel = document.getElementById('filterPanel' + name.charAt(0).toUpperCase() + name.slice(1));
+  const chip = document.getElementById('filter' + name.charAt(0).toUpperCase() + name.slice(1));
+  const wasShown = panel.classList.contains('show');
+  document.querySelectorAll('.filter-panel').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  if (!wasShown) {
+    panel.classList.add('show');
+    chip.classList.add('active');
+  }
+}
+
+function updateFilterDisplay() {
+  document.getElementById('filterBudgetVal').textContent = state.budgetTier || '舒适型';
+  const transportLabels = { auto: '自动推荐', train: '高铁/动车', flight: '飞机' };
+  document.getElementById('filterTransportVal').textContent = transportLabels[state.transportMode] || '自动推荐';
+  document.getElementById('filterPrefVal').textContent = (state.preferences && state.preferences.length > 0) ? state.preferences.join('、') : '全部';
+}
+
+function applyLayoutState() {
+  const hasMessages = document.getElementById('chatMessages').children.length > 0;
+  const welcomeCard = document.getElementById('welcomeCard');
+  const sceneActions = document.getElementById('sceneActions');
+  if (hasMessages) {
+    welcomeCard.classList.add('hidden');
+    sceneActions.style.display = 'none';
+  } else {
+    welcomeCard.classList.remove('hidden');
+    sceneActions.style.display = '';
+  }
+}
+
 function switchAuthTab(mode) {
   state.authMode = mode;
   document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t.dataset.auth === mode));
@@ -2736,6 +2888,55 @@ function showUserMenu() {
 
 function toggleUserMenu() {
   document.getElementById('userDropdown').classList.toggle('hidden');
+}
+
+function openNicknameModal() {
+  document.getElementById('userDropdown').classList.add('hidden');
+  const input = document.getElementById('nicknameInput');
+  input.value = state.user?.username || '';
+  document.getElementById('nicknameError').textContent = '';
+  document.getElementById('nicknameSubmitBtn').disabled = false;
+  document.getElementById('nicknameSubmitBtn').textContent = '保存';
+  document.getElementById('nicknameModal').classList.remove('hidden');
+  setTimeout(() => { input.focus(); input.select(); }, 0);
+}
+
+function closeNicknameModal() {
+  document.getElementById('nicknameModal').classList.add('hidden');
+}
+
+async function saveNickname(e) {
+  e.preventDefault();
+  const name = document.getElementById('nicknameInput').value.trim();
+  const errorEl = document.getElementById('nicknameError');
+  const submitBtn = document.getElementById('nicknameSubmitBtn');
+  if (!name) {
+    errorEl.textContent = '昵称不能为空';
+    return;
+  }
+  submitBtn.disabled = true;
+  submitBtn.textContent = '保存中…';
+  try {
+    const resp = await authFetch('/api/me/username', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: name }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '修改失败');
+    // 后端重新签发了令牌（旧令牌里还是旧昵称），一起换掉
+    state.token = data.token;
+    state.user.username = data.username;
+    localStorage.setItem('juxing_token', state.token);
+    localStorage.setItem('juxing_user', JSON.stringify(state.user));
+    showUserMenu();
+    closeNicknameModal();
+    showToast('昵称已更新', 'success');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    submitBtn.disabled = false;
+    submitBtn.textContent = '保存';
+  }
 }
 
 function logout() {
@@ -2886,6 +3087,8 @@ function startOver() {
   state.pendingMessage = '';
   localStorage.removeItem('juxing_planId');
   document.getElementById('chatMessages').innerHTML = '';
+  applyLayoutState();
+  updateFilterDisplay();
   document.getElementById('shareResult').style.display = 'none';
   // 清除地图实例
   if (planMapInstance) {
@@ -3000,6 +3203,9 @@ function selectBudgetTier(tier) {
   document.querySelectorAll('.budget-tier-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tier === tier);
   });
+  updateFilterDisplay();
+  document.querySelectorAll('.filter-panel').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
 }
 
 function selectTransportMode(mode) {
@@ -3007,6 +3213,9 @@ function selectTransportMode(mode) {
   document.querySelectorAll('.transport-mode-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
+  updateFilterDisplay();
+  document.querySelectorAll('.filter-panel').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
 }
 
 // ── 行程大纲确认 ──────────────────────────────────────────
@@ -3131,6 +3340,7 @@ function togglePreference(pref) {
   document.querySelectorAll('.pref-tag-btn').forEach(btn => {
     btn.classList.toggle('active', state.preferences.includes(btn.dataset.pref));
   });
+  updateFilterDisplay();
 }
 
 async function sendMessage() {
@@ -3159,6 +3369,7 @@ async function sendMessage() {
     msgParams.preferences = state.preferences.join('、');
   }
   addMessage('user', message, msgParams);
+  applyLayoutState();
   
   state.isSending = true;
   const sendBtn = document.getElementById('sendBtn');
@@ -3663,6 +3874,12 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 document.addEventListener('DOMContentLoaded', () => {
   initAuth();
   document.getElementById('chatInput').focus();
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.filter-chip') && !e.target.closest('.filter-panel')) {
+      document.querySelectorAll('.filter-panel').forEach(p => p.classList.remove('show'));
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    }
+  });
 });
 
 // ── Revision History ──────────────────────────────────────
