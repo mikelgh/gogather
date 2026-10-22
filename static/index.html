@@ -1432,6 +1432,25 @@
   opacity: 0.8;
 }
 
+.empty-state-btn {
+  margin-top: 16px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--primary);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-bg-hover);
+  border-radius: 9px;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.empty-state-btn:hover {
+  background: var(--primary-bg-hover);
+  border-color: var(--primary);
+}
+
 /* ── 新手引导 ─────────────────────────────────────────── */
 .tour-overlay {
   position: fixed;
@@ -2165,6 +2184,14 @@
   padding: 40px 0;
 }
 
+.revision-empty small {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
 .revision-item {
   padding: 16px;
   border: 1px solid #e0e0e0;
@@ -2566,7 +2593,7 @@
           </button>
         </div>
         <div class="revision-list" id="revisionList">
-          <div class="revision-empty" data-copy="empty.revisions" data-copy-fallback="暂无修订记录">暂无修订记录</div>
+          <div class="revision-empty"><span data-copy="empty.revisions" data-copy-fallback="暂无修订记录">暂无修订记录</span><small data-copy="empty.revisionsHint">每次调整方案后，这里会保留旧版本，随时可以回滚</small></div>
         </div>
       </div>
     </div>
@@ -2606,6 +2633,7 @@
         <div class="empty-state-icon">📋</div>
         <div class="empty-state-text" data-copy="empty.exec" data-copy-fallback="还没有可选的方案">还没有可选的方案</div>
         <div class="empty-state-hint" data-copy="empty.execHint" data-copy-fallback="先到「策划」里生成一份方案">先到「策划」里生成一份方案，再回来跟踪执行进度</div>
+        <button class="empty-state-btn" onclick="switchView('chat')" data-copy="empty.execBtn" data-copy-fallback="去策划页">去策划页</button>
       </div>
     </div>
   </div>
@@ -3115,9 +3143,10 @@ function switchPlanTab(tab) {
 async function renderReminders() {
   const container = document.getElementById('remindersList');
   if (!container) return;
+  const failed = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">${t('error.reminderLoad', '提醒加载失败')}</div><div class="empty-state-hint">${t('error.reminderLoadHint', '可能是网络波动，点下面重试')}</div><button class="empty-state-btn" onclick="renderReminders()">${t('error.retry', '重试')}</button></div>`;
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/reminders`);
-    if (!resp.ok) { container.innerHTML = '<div class="empty-state">加载失败</div>'; return; }
+    if (!resp.ok) { container.innerHTML = failed; return; }
     const data = await resp.json();
     const reminders = data.reminders || [];
     if (reminders.length === 0) {
@@ -3138,7 +3167,7 @@ async function renderReminders() {
       </div>
     `;
   } catch (err) {
-    container.innerHTML = '<div class="empty-state">加载失败</div>';
+    container.innerHTML = failed;
   }
 }
 
@@ -4003,7 +4032,7 @@ async function showRevisionHistory() {
     const revisions = await resp.json();
     
     if (revisions.length === 0) {
-      list.innerHTML = `<div class="revision-empty">${t('empty.revisions', '暂无修订记录')}</div>`;
+      list.innerHTML = `<div class="revision-empty">${t('empty.revisions', '暂无修订记录')}<small>${t('empty.revisionsHint', '每次调整方案后，这里会保留旧版本，随时可以回滚')}</small></div>`;
       return;
     }
     

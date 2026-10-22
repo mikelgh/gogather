@@ -126,7 +126,7 @@
 <body>
 <div class="header">
   <div class="header-content">
-    <h1 data-copy="brand.name" data-copy-fallback="GoGather 聚行 · 管理后台"><img src="/logo.svg" alt="" style="width:26px;height:26px;border-radius:8px;vertical-align:-5px;margin-right:8px;">GoGather 管理后台</h1>
+    <h1><img src="/logo.svg" alt="" style="width:26px;height:26px;border-radius:8px;vertical-align:-5px;margin-right:8px;"><span data-copy="brand.name" data-copy-fallback="GoGather 聚行 · 管理后台">GoGather 管理后台</span></h1>
     <div class="user-info">
       <img id="userAvatar" class="avatar" src="" alt="avatar" style="display:none">
       <span id="userName"></span>
@@ -279,6 +279,11 @@ function showError(msg) {
   box.style.display = 'block';
 }
 
+// 三张表的空态文案不同，用 colspan 占满整行
+function emptyRow(text) {
+  return `<tr><td colspan="100" style="text-align:center;padding:36px 16px;color:var(--text-muted);font-size:13.5px">${esc(text)}</td></tr>`;
+}
+
 async function apiGet(path) {
   const resp = await fetch(API_BASE + path, {
     headers: { 'Authorization': `Bearer ${token}` }
@@ -349,7 +354,7 @@ async function loadUsers() {
   try {
     const users = await apiGet('/api/admin/users');
     const tbody = document.getElementById('usersBody');
-    tbody.innerHTML = users.map(u => `
+    tbody.innerHTML = users.length ? users.map(u => `
       <tr>
         <td>${esc(u.username)}</td>
         <td>${u.github_id || '-'}</td>
@@ -357,11 +362,11 @@ async function loadUsers() {
         <td>${u.ai_plan_count}</td>
         <td>${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
       </tr>
-    `).join('');
+    `).join('') : emptyRow(t('empty.adminUsers', '还没有注册用户'));
     document.getElementById('usersLoading').style.display = 'none';
     document.getElementById('usersTable').style.display = 'table';
   } catch (e) {
-    showError('加载用户数据失败：' + e.message);
+    showError(t('error.loadUsers', '用户数据加载失败，请稍后重试'));
   }
 }
 
@@ -370,7 +375,7 @@ async function loadPlans() {
   try {
     const plans = await apiGet('/api/admin/plans?limit=100');
     const tbody = document.getElementById('plansBody');
-    tbody.innerHTML = plans.map(p => `
+    tbody.innerHTML = plans.length ? plans.map(p => `
       <tr>
         <td><code>${p.id}</code></td>
         <td>${esc(p.username || p.user_id)}</td>
@@ -379,11 +384,11 @@ async function loadPlans() {
         <td>${p.used_llm ? '<span class="badge badge-primary">是</span>' : '<span class="badge badge-secondary">否</span>'}</td>
         <td><button onclick="viewPlanUsage('${p.id}')" style="padding:4px 12px;border:1px solid var(--primary);background:white;color:var(--primary);border-radius:6px;cursor:pointer">AI 详情</button></td>
       </tr>
-    `).join('');
+    `).join('') : emptyRow(t('empty.adminPlans', '还没有生成过方案'));
     document.getElementById('plansLoading').style.display = 'none';
     document.getElementById('plansTable').style.display = 'table';
   } catch (e) {
-    showError('加载方案数据失败：' + e.message);
+    showError(t('error.loadPlans', '方案数据加载失败，请稍后重试'));
   }
 }
 
@@ -395,7 +400,7 @@ async function viewPlanUsage(planId) {
           `总 Token：${usage.reduce((sum, u) => sum + u.total_tokens, 0).toLocaleString()}\n` +
           `总费用：¥${usage.reduce((sum, u) => sum + u.cost, 0).toFixed(4)}`);
   } catch (e) {
-    showError('加载方案 AI 使用详情失败：' + e.message);
+    showError(t('error.loadPlanUsage', '该方案的 AI 使用详情加载失败，请稍后重试'));
   }
 }
 
@@ -404,13 +409,13 @@ async function loadAIUsage() {
   try {
     const usage = await apiGet('/api/admin/ai-usage?days=30');
     const tbody = document.getElementById('usageBody');
-    tbody.innerHTML = usage.by_user.map(u => `
+    tbody.innerHTML = usage.by_user.length ? usage.by_user.map(u => `
       <tr>
         <td>${esc(u.username)}</td>
         <td>${u.calls}</td>
         <td>${u.tokens ? u.tokens.toLocaleString() : '0'}</td>
       </tr>
-    `).join('');
+    `).join('') : emptyRow(t('empty.adminUsage', '近 30 天还没有 AI 调用记录'));
     document.getElementById('usageLoading').style.display = 'none';
     document.getElementById('usageTable').style.display = 'table';
 
