@@ -9,6 +9,7 @@
  * points: [{ lat, lng, title, time_range, location }, ...]
  * layout: 'stacked' 地点列表渲染在容器后方（列表元素 id = container.id + 'LocationList'）
  *         'side'    地点列表渲染在容器内的右侧面板（全屏布局用）
+ * fullscreenUrl: 传入时在地图右上角显示"⛶ 全屏查看"按钮（新窗口打开该地址）
  */
 const GoGatherMap = (() => {
   const DAY_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -69,6 +70,26 @@ const GoGatherMap = (() => {
       maxZoom: 18,
     }).addTo(map);
     setTimeout(() => map.invalidateSize(), 100);
+
+    // 全屏查看入口：地图右上角悬浮按钮
+    if (opts.fullscreenUrl) {
+      const FsControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+          const a = L.DomUtil.create('a', 'gogather-map-fullscreen');
+          a.href = opts.fullscreenUrl;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.innerHTML = '⛶ 全屏查看';
+          a.style.cssText = 'display:flex;align-items:center;gap:4px;background:#fff;border-radius:8px;'
+            + 'padding:6px 12px;font-size:13px;font-weight:500;color:var(--primary, #6366f1);'
+            + 'text-decoration:none;box-shadow:0 2px 6px rgba(0,0,0,0.15);white-space:nowrap;';
+          L.DomEvent.disableClickPropagation(a);
+          return a;
+        },
+      });
+      map.addControl(new FsControl());
+    }
 
     const markers = [];
     const markerList = [];

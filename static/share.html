@@ -632,7 +632,10 @@ async function renderShareMap() {
     const points = (data.timeline || []).filter(t => t.lat && t.lng);
     if (points.length === 0) { container.style.display = 'none'; return; }
     container.style.display = 'block';
-    shareMapInst = GoGatherMap.create(container, points, { listId: 'shareMapLocationList' });
+    shareMapInst = GoGatherMap.create(container, points, {
+      listId: 'shareMapLocationList',
+      fullscreenUrl: `/map/${code}`,
+    });
   } catch (err) {
     console.error('Map render failed:', err);
   }
@@ -703,7 +706,7 @@ function renderPlan(plan) {
   if (timeline.length > 0) {
     html += `
       <div class="section">
-        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">行程安排<a href="/map/${code}" target="_blank" rel="noopener" style="font-size:13px;font-weight:500;color:var(--primary);text-decoration:none;">🗺️ 全屏查看地图</a></div>
+        <div class="section-title">行程安排</div>
         <div id="shareMap" style="height: 350px; margin-bottom: 16px; border-radius: 12px; overflow: hidden;"></div>
         ${timeline.map((item, i) => `
           <div class="timeline-item">

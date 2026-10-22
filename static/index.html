@@ -2229,9 +2229,6 @@ body {
     <div class="plan-content">
       <div class="tab-content" id="timelineTab">
         <div id="mapContainer" style="height: 400px; margin-bottom: 20px; border-radius: 12px; overflow: hidden; display: none;"></div>
-        <div id="mapFullscreenBar" style="display:none;justify-content:flex-end;margin:-12px 0 12px;">
-          <a id="mapFullscreenLink" href="#" target="_blank" rel="noopener" style="font-size:13px;font-weight:500;color:var(--primary);text-decoration:none;">🗺️ 全屏查看地图</a>
-        </div>
         <div class="timeline" id="timelineContent"></div>
       </div>
 
@@ -2784,8 +2781,6 @@ async function renderMap() {
   if (oldList) oldList.remove();
   container.innerHTML = '';
   container.style.display = 'none';
-  const fsBar = document.getElementById('mapFullscreenBar');
-  if (fsBar) fsBar.style.display = 'none';
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/map`);
     if (!resp.ok) return;
@@ -2794,12 +2789,11 @@ async function renderMap() {
     const points = timeline.filter(t => t.lat && t.lng);
     if (points.length === 0) return;
     container.style.display = 'block';
-    planMapInstance = GoGatherMap.create(container, points, { listId: 'mapLocationList' });
     const shareCode = (state.plan && state.plan.share_code) || '';
-    if (fsBar && shareCode) {
-      document.getElementById('mapFullscreenLink').href = `/map/${shareCode}`;
-      fsBar.style.display = 'flex';
-    }
+    planMapInstance = GoGatherMap.create(container, points, {
+      listId: 'mapLocationList',
+      fullscreenUrl: shareCode ? `/map/${shareCode}` : '',
+    });
   } catch (err) {
     console.error('Map render failed:', err);
   }
