@@ -169,6 +169,15 @@ def create_user(user_id: str, username: str, password_hash: str) -> dict | None:
     return {"id": user_id, "username": username}
 
 
+def get_user_by_id(user_id: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+
 def get_user_by_username(username: str) -> dict | None:
     conn = _get_conn()
     row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
@@ -648,7 +657,7 @@ def admin_get_all_users() -> list[dict]:
     """获取所有用户及其方案统计。"""
     conn = _get_conn()
     rows = conn.execute("""
-        SELECT u.id, u.username, u.github_id, u.avatar_url, u.created_at,
+        SELECT u.id, u.username, u.github_id, u.alipay_id, u.avatar_url, u.created_at,
                COUNT(p.id) as plan_count,
                COALESCE(SUM(p.used_llm), 0) as ai_plan_count
         FROM users u

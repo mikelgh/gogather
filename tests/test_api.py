@@ -469,3 +469,66 @@ class TestReviseEndpoint:
     def test_revise_requires_login(self, api_client):
         r = api_client.post("/api/plan/whatever/revise", json={"message": "x"})
         assert r.status_code in (401, 403)
+
+
+class TestGithubOAuth:
+    """GitHub 回调网络异常时优雅降级（服务器侧 github.com 间歇性被阻断）。"""
+
+    def test_callback_network_error_redirects_home(self, api_client, monkeypatch):
+        import httpx
+
+        from app import main as app_main
+
+        class ExplodingClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **k):
+                raise httpx.ConnectTimeout("github.com unreachable")
+
+        async def _no_sleep(_):
+            return
+
+        monkeypatch.setattr(app_main.httpx, "AsyncClient", ExplodingClient)
+        monkeypatch.setattr(app_main.asyncio, "sleep", _no_sleep)
+        state = "test-oauth-state"
+        app_main._oauth_states[state] = 0
+
+        resp = api_client.get(
+            "/api/auth/github/callback",
+            params={"code": "abc123", "state": state},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "/?auth_error=github"
+        assert state not in app_main._oauth_states
+
+    def test_callback_bad_state_rejected(self, api_client):
+        resp = api_client.get(
+            "/api/auth/github/callback",
+            params={"code": "abc", "state": "not-exist"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 400
+
+
+def test_me_returns_bound_identity(api_client, auth_headers, temp_db):
+    from app import database
+
+    me = api_client.get("/api/me", headers=auth_headers).json()
+    assert me["github_bound"] is False
+    assert me["alipay_bound"] is False
+
+    user = database.get_user_by_username("testuser")
+    database.link_github_account(user["id"], 123456, "http://avatar/u.png")
+    database.link_alipay_account(user["id"], "2088xxx", "")
+
+    me = api_client.get("/api/me", headers=auth_headers).json()
+    assert me["github_bound"] is True
+    assert me["alipay_bound"] is True

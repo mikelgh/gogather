@@ -2459,6 +2459,7 @@
       <div class="user-dropdown hidden" id="userDropdown">
         <div class="user-dropdown-header">
           <div class="user-dropdown-name" id="dropdownUsername"></div>
+          <div class="user-dropdown-email" id="dropdownIdentity"></div>
         </div>
         <div class="user-dropdown-item" onclick="closeUserMenu(); window.open('/guide','_blank','noopener');">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -2785,6 +2786,11 @@ async function initAuth() {
   const urlToken = urlParams.get('token');
   const urlUsername = urlParams.get('username');
   const returnTo = urlParams.get('return_to');
+
+  if (urlParams.get('auth_error')) {
+    showToast('GitHub 登录暂时不可用（服务器访问 GitHub 超时），请稍后重试或使用账号密码登录');
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
 
   if (urlToken && urlUsername) {
     state.token = urlToken;
@@ -3183,11 +3189,33 @@ function startRegisterCaptcha(username, password) {
   }
 }
 
+function renderUserIdentity() {
+  const el = document.getElementById('dropdownIdentity');
+  if (!el || !state.user) return;
+  const parts = [];
+  if (state.user.github_bound) parts.push('GitHub');
+  if (state.user.alipay_bound) parts.push('支付宝');
+  el.textContent = parts.length ? '绑定：' + parts.join(' · ') : '账号密码注册';
+}
+
 function showUserMenu() {
   document.getElementById('userMenuWrapper').style.display = 'block';
   const initial = (state.user.username || '?')[0].toUpperCase();
   document.getElementById('userAvatar').textContent = initial;
   document.getElementById('dropdownUsername').textContent = state.user.username;
+  renderUserIdentity();
+  // OAuth 回跳只带 token/username，绑定状态需从 /api/me 刷新
+  if (state.token) {
+    fetch('/api/me', { headers: { Authorization: `Bearer ${state.token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => {
+        if (!me) return;
+        state.user = { ...state.user, ...me };
+        localStorage.setItem('juxing_user', JSON.stringify(state.user));
+        renderUserIdentity();
+      })
+      .catch(() => {});
+  }
 }
 
 function toggleUserMenu() {

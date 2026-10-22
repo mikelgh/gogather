@@ -3,6 +3,7 @@ import os
 import re
 import uuid
 import secrets
+import asyncio
 import logging
 from datetime import datetime
 from urllib.parse import urlencode
@@ -423,7 +424,14 @@ def api_login(req: LoginRequest, request: Request):
 
 @app.get("/api/me")
 def api_me(user: dict = Depends(get_current_user)):
-    return {"id": user["id"], "username": user["username"]}
+    row = db.get_user_by_id(user["id"]) or {}
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "github_bound": bool(row.get("github_id")),
+        "alipay_bound": bool(row.get("alipay_id")),
+        "avatar_url": row.get("avatar_url") or "",
+    }
 
 
 # \w 已覆盖中英文/数字/下划线；昵称会出现在 OAuth 回跳 URL 与管理后台表格里，限制字符集可避免注入
@@ -475,30 +483,44 @@ async def github_callback(code: str, state: str):
         raise HTTPException(status_code=400, detail="无效的 state 参数")
     _oauth_states.pop(state)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        token_resp = await client.post(
-            GITHUB_TOKEN_URL,
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": config.GITHUB_CLIENT_ID,
-                "client_secret": config.GITHUB_CLIENT_SECRET,
-                "code": code,
-                "redirect_uri": config.GITHUB_CALLBACK_URL,
-            },
-        )
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            raise HTTPException(status_code=400, detail="GitHub 授权失败")
+    # 服务器侧访问 github.com 间歇性被阻断（浏览器侧是通的），换 token 失败时
+    # 重试几次，仍失败则带错误参数跳回首页，避免用户直接看到 500。
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            token_resp = None
+            for attempt in range(3):
+                try:
+                    token_resp = await client.post(
+                        GITHUB_TOKEN_URL,
+                        headers={"Accept": "application/json"},
+                        data={
+                            "client_id": config.GITHUB_CLIENT_ID,
+                            "client_secret": config.GITHUB_CLIENT_SECRET,
+                            "code": code,
+                            "redirect_uri": config.GITHUB_CALLBACK_URL,
+                        },
+                    )
+                    break
+                except httpx.RequestError:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(1)
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="GitHub 授权失败")
 
-        user_resp = await client.get(
-            GITHUB_USER_URL,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json",
-            },
-        )
-        gh_user = user_resp.json()
+            user_resp = await client.get(
+                GITHUB_USER_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/json",
+                },
+            )
+            gh_user = user_resp.json()
+    except httpx.RequestError as e:
+        log.warning("GitHub OAuth 回调网络异常: %s", e)
+        return RedirectResponse("/?auth_error=github")
 
     github_id = gh_user["id"]
     github_username = gh_user["login"]

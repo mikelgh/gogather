@@ -183,7 +183,7 @@
         <thead>
           <tr>
             <th>用户名</th>
-            <th>GitHub ID</th>
+            <th>绑定身份</th>
             <th>方案数</th>
             <th>AI 方案数</th>
             <th>注册时间</th>
@@ -357,7 +357,7 @@ async function loadUsers() {
     tbody.innerHTML = users.length ? users.map(u => `
       <tr>
         <td>${esc(u.username)}</td>
-        <td>${u.github_id || '-'}</td>
+        <td title="${[u.github_id && ('GitHub: ' + u.github_id), u.alipay_id && ('支付宝: ' + u.alipay_id)].filter(Boolean).join('，') || ''}">${[u.github_id && 'GitHub', u.alipay_id && '支付宝'].filter(Boolean).join(' + ') || '自主注册'}</td>
         <td>${u.plan_count}</td>
         <td>${u.ai_plan_count}</td>
         <td>${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>

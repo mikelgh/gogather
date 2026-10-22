@@ -6,6 +6,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app import config as _config  # noqa: E402,F401  收集期即触发 load_dotenv，使其早于各用例的 delenv 清理，避免首个用例被 .env 污染
+
 
 @pytest.fixture()
 def temp_db(tmp_path, monkeypatch):
