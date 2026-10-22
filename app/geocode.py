@@ -81,6 +81,8 @@ POI_COORDS = {
         "广州南站": (22.9867, 113.2667),
         "广州站": (23.1467, 113.2567),
         "广州东站": (23.1567, 113.3267),
+        "白云国际机场": (23.3924, 113.2988),
+        "广州白云国际机场": (23.3924, 113.2988),
     },
     "成都": {
         "武侯祠": (30.6467, 104.0467),
@@ -95,6 +97,10 @@ POI_COORDS = {
         "蜀风雅韵": (30.6667, 104.0567),
         "漫花庄园": (30.7867, 104.0867),
         "飞越丛林": (30.7267, 104.0267),
+        "双流国际机场": (30.5728, 103.9467),
+        "成都双流国际机场": (30.5728, 103.9467),
+        "天府国际机场": (30.3167, 104.4467),
+        "成都天府国际机场": (30.3167, 104.4467),
     },
     "九寨沟": {
         "九寨沟风景区": (33.2667, 103.9167),
@@ -140,6 +146,18 @@ def _extract_cities(city: str) -> list:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _detect_city_in_location(location: str, cities: list) -> str | None:
+    """从地点文本中检测城市名（如"广州白云国际机场" → "广州"）。"""
+    for c in cities:
+        if c in location:
+            return c
+    # 尝试常见城市名（即使不在 cities 列表中）
+    for city_name in CITY_COORDS.keys():
+        if city_name in location:
+            return city_name
+    return None
+
+
 def geocode(location: str, city: str) -> tuple[float, float] | None:
     """把地点文本转成 (lat, lng)。未命中返回 None。"""
     if not location:
@@ -150,41 +168,66 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
     # 支持多城市名称（如"成都 + 九寨沟 + 乐山"）
     cities = _extract_cities(city)
     
-    # 尝试所有城市的 POI
-    for c in cities:
-        city_pois = POI_COORDS.get(c, {})
+    # 优先处理 "城市 A→城市 B" 格式的交通路线（返回出发地坐标）
+    route_match = re.search(r"(.+)\s*→\s*(.+)", location)
+    if route_match:
+        dep_full = route_match.group(1).strip()
+        arr_full = route_match.group(2).strip()
+        # 尝试从地点名中提取城市名（查找所有城市名）
+        dep_city = None
+        arr_city = None
+        for city_name in list(CITY_COORDS.keys()) + list(POI_COORDS.keys()):
+            if city_name in dep_full:
+                dep_city = city_name
+                break
+        for city_name in list(CITY_COORDS.keys()) + list(POI_COORDS.keys()):
+            if city_name in arr_full:
+                arr_city = city_name
+                break
+        # 在出发城市找机场/火车站
+        if dep_city:
+            dep_pois = POI_COORDS.get(dep_city, {})
+            # 优先找机场
+            for poi_key in dep_pois:
+                if "机场" in poi_key:
+                    return dep_pois[poi_key]
+            # 其次找火车站
+            for suffix in ["东", "北", "南", "西", ""]:
+                station_name = f"{dep_city}{suffix}站"
+                if station_name in dep_pois:
+                    return dep_pois[station_name]
+            # 回退到出发城市中心
+            if dep_city in CITY_COORDS:
+                return CITY_COORDS[dep_city]
+        # 如果出发城市不在 POI 列表中，尝试到达城市
+        if arr_city:
+            arr_pois = POI_COORDS.get(arr_city, {})
+            for poi_key in arr_pois:
+                if "机场" in poi_key:
+                    return arr_pois[poi_key]
+            if arr_city in CITY_COORDS:
+                return CITY_COORDS[arr_city]
+    
+    # 从地点文本中检测城市名
+    detected_city = _detect_city_in_location(location, cities)
+    
+    # 如果检测到城市名，优先使用该城市的 POI
+    if detected_city:
+        city_pois = POI_COORDS.get(detected_city, {})
         # 精确匹配 POI
         for poi_name, coords in city_pois.items():
             if poi_name in location:
                 return coords
-
-    # 精确匹配 POI
-    for poi_name, coords in city_pois.items():
-        if poi_name in location:
-            return coords
-
-    # 处理 "城市 A→城市 B" 格式的交通路线
-    route_match = re.search(r"(.+?)\s*[→→]\s*(.+?)", location)
-    if route_match:
-        dep_city = route_match.group(1).strip()
-        # 在出发城市找火车站
-        dep_pois = POI_COORDS.get(dep_city, {})
-        # 优先找东站（高铁主要停靠），其次北站、南站、西站、主站
-        for suffix in ["东", "北", "南", "西", ""]:
-            station_name = f"{dep_city}{suffix}站"
-            if station_name in dep_pois:
-                return dep_pois[station_name]
-        # 回退到出发城市中心
-        if dep_city in CITY_COORDS:
-            return CITY_COORDS[dep_city]
-
-    # 火车站模糊匹配：提取城市名 + 站名模式
-    station_match = re.search(rf"{city}(.+?)(?:站 | 高铁站 | 火车站)", location)
-    if station_match:
-        for suffix in ["东", "西", "南", "北", ""]:
-            station_name = f"{city}{suffix}站"
-            if station_name in city_pois:
-                return city_pois[station_name]
+        # 回退到该城市中心
+        if detected_city in CITY_COORDS:
+            return CITY_COORDS[detected_city]
+    
+    # 尝试所有城市的 POI（模糊匹配）
+    for c in cities:
+        city_pois = POI_COORDS.get(c, {})
+        for poi_name, coords in city_pois.items():
+            if poi_name in location:
+                return coords
 
     # 回退到第一个城市的中心坐标
     for c in cities:
