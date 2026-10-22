@@ -10,6 +10,7 @@
  * layout: 'stacked' 地点列表渲染在容器后方（列表元素 id = container.id + 'LocationList'）
  *         'side'    地点列表渲染在容器内的右侧面板（全屏布局用）
  * fullscreenUrl: 传入时在地图右上角显示"⛶ 全屏查看"按钮（新窗口打开该地址）
+ * compact: 列表使用小号字体（侧栏面板较窄时用）
  */
 const GoGatherMap = (() => {
   const DAY_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -38,14 +39,17 @@ const GoGatherMap = (() => {
     });
   }
 
-  function renderListItems(markerList, showLocation) {
+  function renderListItems(markerList, showLocation, compact) {
+    const s = compact
+      ? { pad: '6px 10px', badge: 18, badgeFont: 10, title: 11, meta: 10, loc: 9, gap: 8 }
+      : { pad: '10px 14px', badge: 24, badgeFont: 12, title: 13, meta: 11, loc: 11, gap: 10 };
     return markerList.map(({ item, idx }) => `
-      <div class="map-location-item" data-idx="${idx}" style="padding:10px 14px;border-bottom:1px solid var(--border-light, rgba(0,0,0,0.06));cursor:pointer;display:flex;align-items:center;gap:10px;">
-        <span style="background:var(--primary, #6366f1);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0;">${idx + 1}</span>
+      <div class="map-location-item" data-idx="${idx}" style="padding:${s.pad};border-bottom:1px solid var(--border-light, rgba(0,0,0,0.06));cursor:pointer;display:flex;align-items:center;gap:${s.gap}px;">
+        <span style="background:var(--primary, #6366f1);color:#fff;width:${s.badge}px;height:${s.badge}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${s.badgeFont}px;font-weight:bold;flex-shrink:0;">${idx + 1}</span>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.title || ''}</div>
-          <div style="font-size:11px;color:var(--text-muted, #94a3b8);">${item.time_range || ''}</div>
-          ${showLocation && item.location ? `<div style="font-size:11px;color:#cbd5e1;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${item.location}</div>` : ''}
+          <div style="font-size:${s.title}px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.title || ''}</div>
+          <div style="font-size:${s.meta}px;color:var(--text-muted, #94a3b8);">${item.time_range || ''}</div>
+          ${showLocation && item.location ? `<div style="font-size:${s.loc}px;color:#cbd5e1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${item.location}</div>` : ''}
         </div>
       </div>`).join('');
   }
@@ -125,7 +129,7 @@ const GoGatherMap = (() => {
     }
 
     if (listEl) {
-      listEl.innerHTML = renderListItems(markerList, !!opts.showLocation);
+      listEl.innerHTML = renderListItems(markerList, !!opts.showLocation, !!opts.compact);
       listEl.querySelectorAll('.map-location-item').forEach(el => {
         el.addEventListener('click', () => {
           const idx = parseInt(el.dataset.idx);

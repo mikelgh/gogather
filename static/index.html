@@ -2039,7 +2039,7 @@ body {
 #mapSideLayout { display: none; gap: 14px; margin-bottom: 20px; align-items: stretch; }
 #mapSideLayout.visible { display: flex; }
 #mapSideLayout #mapContainer { flex: 1; min-width: 0; height: 420px; margin-bottom: 0; border-radius: 12px; overflow: hidden; }
-.map-side-panel { width: 320px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.map-side-panel { width: 320px; height: 420px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
 .map-side-panel .panel-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border-light); flex-shrink: 0; }
 .map-side-panel .panel-title { font-size: 14px; font-weight: 600; }
 .map-side-panel .panel-count { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
@@ -2047,7 +2047,7 @@ body {
 @media (max-width: 900px) {
   #mapSideLayout.visible { flex-direction: column; }
   #mapSideLayout #mapContainer { height: 300px; flex: none; }
-  .map-side-panel { width: 100%; }
+  .map-side-panel { width: 100%; height: auto; }
   #mapLocationList { max-height: 220px; }
 }
 
@@ -2822,6 +2822,7 @@ async function renderMap() {
       layout: 'side',
       listEl: document.getElementById('mapLocationList'),
       showLocation: true,
+      compact: true,
       fullscreenUrl: shareCode ? `/map/${shareCode}?from=plan&plan=${encodeURIComponent(state.planId)}` : '',
     });
   } catch (err) {
@@ -3107,7 +3108,11 @@ async function sendMessage() {
 function showPlan(plan, planId, structured = {}) {
   document.getElementById('chatView').classList.add('hidden');
   document.getElementById('planView').classList.add('active');
-  
+  // 进入方案页总是从顶部开始（滚动容器残留聊天区位置 + 浏览器刷新恢复都会拉到底部）
+  const scroller = document.querySelector('.main-content');
+  if (scroller) scroller.scrollTop = 0;
+  window.scrollTo(0, 0);
+
   const city = structured.city || state.extractedParams.city || plan.city || '';
   const budgetTier = state.extractedParams.budget_tier || plan.params?.budget_tier || '';
   const tierBadge = budgetTier ? ` · ${budgetTier}` : '';
@@ -3488,6 +3493,7 @@ async function sendRevision() {
 }
 
 // ── Init ──────────────────────────────────────────────────
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 document.addEventListener('DOMContentLoaded', () => {
   initAuth();
   document.getElementById('chatInput').focus();
