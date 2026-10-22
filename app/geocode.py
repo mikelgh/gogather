@@ -135,8 +135,8 @@ POI_COORDS = {
 def _extract_cities(city: str) -> list:
     """从多城市名称中提取所有城市名（如"成都 + 九寨沟 + 乐山" → ["成都", "九寨沟", "乐山"]）。"""
     import re
-    # 按 +、,、，、/ 等分隔符拆分
-    parts = re.split(r'[+,，/、\s]+', city)
+    # 按 +、,、，、/、→ 等分隔符拆分
+    parts = re.split(r'[+,，/、→\s]+', city)
     return [p.strip() for p in parts if p.strip()]
 
 
