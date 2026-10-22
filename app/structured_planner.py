@@ -353,9 +353,18 @@ def _compute_days_nights(result: dict, params: dict) -> None:
 def _validate_booking_links(result: dict) -> None:
     """校验 timeline 中的 booking_link 必须是真实 http(s) URL，否则置为 null。"""
     for item in result.get("timeline", []):
-        link = item.get("booking_link")
-        if link and not re.match(r"^https?://", str(link)):
+        link = str(item.get("booking_link") or "")
+        if not link:
+            continue
+        if not re.match(r"^https?://", link):
             item["booking_link"] = None
+            continue
+        # Detect feizhu router URLs with placeholder tokens (e.g. ?url=train_gz_cd)
+        m = re.search(r"url=([^&]+)", link)
+        if m and "router.feizhu.com" in link:
+            token = m.group(1)
+            if not re.match(r"^\d{10,}$", token):
+                item["booking_link"] = None
 
 
 def _validate_coords(result: dict, flyai_sections: list) -> None:
