@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import httpx
 
@@ -23,6 +24,13 @@ db.init_db()
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="聚行 · 飞猪 AI 旅行助手")
+
+# 静态资源统一挂载（brand.css / copy.js / logo / 新增图片等）
+app.mount(
+    "/static",
+    StaticFiles(directory=os.path.join(BASE_DIR, "static")),
+    name="static",
+)
 
 
 # ── Request Models ────────────────────────────────────────
