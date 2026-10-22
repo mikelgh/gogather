@@ -527,16 +527,23 @@
 const code = window.location.pathname.split('/').pop();
 
 async function loadSharedPlan() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
   try {
-    const resp = await fetch(`/api/share/${code}`);
+    const resp = await fetch(`/api/share/${code}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!resp.ok) throw new Error(t('error.shareInvalid', '分享链接无效或已过期'));
     const plan = await resp.json();
     renderPlan(plan);
   } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err.name === 'AbortError';
+    const msg = isTimeout ? '加载超时，请检查网络后重试' : (t('error.shareInvalid', '分享链接无效或已过期'));
     document.getElementById('app').innerHTML = `
       <div class="error-state">
-        <h2 data-copy="share.notFoundTitle" data-copy-fallback="方案不存在">方案不存在</h2>
-        <p data-copy="error.shareInvalid" data-copy-fallback="分享链接无效或已过期">分享链接无效或已过期</p>
+        <h2>${isTimeout ? '加载超时' : '方案不存在'}</h2>
+        <p>${msg}</p>
+        <button onclick="location.reload()" style="margin-top:16px;padding:8px 24px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);cursor:pointer;font-size:14px;">重试</button>
       </div>
     `;
     hydrateCopy(document.getElementById('app'));
@@ -708,12 +715,12 @@ function renderPlan(plan) {
       <div class="section">
         <div class="section-title">预算概览</div>
         <div class="budget-grid">
-          ${budget.map(item => `
+          ${budget.filter(item => !item.is_per_person).map(item => `
             <div class="budget-card">
               <div class="category">${item.category}</div>
               <div class="amount">${item.estimated_cost || '--'}</div>
               ${item.description ? `<div class="budget-desc">${item.description}</div>` : ''}
-              <div class="unit">${item.is_per_person ? '人均' : '总计'}</div>
+              <div class="unit">总计</div>
             </div>
           `).join('')}
         </div>
@@ -779,11 +786,14 @@ async function renderShareReminders() {
     if (!resp.ok) return;
     const data = await resp.json();
     const reminders = data.reminders || [];
-    if (reminders.length === 0) return;
     const section = document.getElementById('remindersSection');
     const content = document.getElementById('remindersContent');
     if (!section || !content) return;
     section.style.display = 'block';
+    if (reminders.length === 0) {
+      content.innerHTML = `<div style="padding:24px 0;text-align:center;color:var(--text-muted);font-size:13px;">暂无出行提醒，行程确认后系统将自动生成关键节点提醒</div>`;
+      return;
+    }
     content.innerHTML = `
       <div style="padding: 8px 0;">
         <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">共${reminders.length}项提醒</div>

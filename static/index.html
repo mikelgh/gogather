@@ -3763,12 +3763,12 @@ function renderBudget(structured) {
     return;
   }
   
-  grid.innerHTML = budget.map((item, i) => `
+  grid.innerHTML = budget.filter(item => !item.is_per_person).map((item, i) => `
     <div class="budget-card" style="animation: fadeInUp 0.3s ease ${i * 0.05}s both;">
       <div class="category">${item.category}</div>
       <div class="amount">${item.estimated_cost || '--'}</div>
       ${item.description ? `<div class="budget-desc">${item.description}</div>` : ''}
-      <div class="unit">${item.is_per_person ? '人均' : '总计'}</div>
+      <div class="unit">总计</div>
     </div>
   `).join('');
   

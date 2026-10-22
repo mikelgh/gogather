@@ -79,13 +79,6 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
             "estimated_cost": "¥6000",
             "is_per_person": false,
             "action_item_id": "hotel-1"
-        }},
-        {{
-            "category": "住宿（人均）",
-            "description": "¥6000÷30人",
-            "estimated_cost": "¥200",
-            "is_per_person": true,
-            "action_item_id": "hotel-1"
         }}
     ],
     "room_allocation": [
@@ -118,7 +111,7 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 6. 房间分配根据人数计算（30人→15间双人间）
 7. budget_per_person = 所有预算项总和 ÷ 人数，必须是具体数字（如"约¥1200"），禁止"待估算"
 8. **禁止¥0 或空价格**：若飞猪结果无价格数据，price 必须填"点击预订链接查看实时价格"或"待确认"，**绝不允许写¥0、0、留空或 null**。该项不计入预算总额，description 注明"需通过预订链接确认价格"，但其余有价格的项照常计算
-9. **餐饮估算**：若飞猪结果给出人均消费参考（如"人均 120-200 元/人"），取中间值估算餐饮预算，description 注明「按飞猪人均参考估算」，is_per_person=true
+9. **餐饮估算**：若飞猪结果给出人均消费参考（如"人均 120-200 元/人"），取中间值×人数算出总额，description 注明「按飞猪人均参考估算」，is_per_person=false
 10. **每日餐饮覆盖**：从入住到退房的每一天，时间线必须包含午餐和晚餐安排（至少 2 餐/天）。若飞猪结果中餐厅数量不足以覆盖所有餐次，剩余餐次在当天活动附近推荐「周边餐饮」，price 标注"按飞猪人均参考估算"或"点击预订链接查看实时价格"，notes 注明"建议提前预订团体餐"
 11. **时间线完整性**：timeline 应覆盖从 Day 1 入住到 Day N 退房的全部天数，每天至少有：早餐（酒店/周边）、午餐、晚餐、当日主要活动
 12. **禁止在 notes/description 中写原始链接**：所有预订链接必须放在 `booking_link` 字段，notes 和 description 中不得出现 `http://` 或 `https://` 开头的 URL。若需引用多个链接（如景点 + 寺庙），只保留主链接在 booking_link，notes 中用文字说明（如"含灵隐寺门票"）
@@ -134,6 +127,7 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 17. **收费项必须全部进预算**：timeline 中任何标了「¥X/人」的收费项（门票、餐饮、游船、演出）都必须有对应的 budget 条目，**逐条核对，一个都不能漏**。反之 budget 中出现的费用也必须在 timeline 有对应安排。
 18. **budget_per_person 必须算出来**：= 所有 `is_per_person=false` 的 budget 条目金额之和 ÷ 人数。禁止凭印象取整或估算；先加总再相除，结果与各项明细必须自洽。
 19. **每天都要有午餐**：Day 1 至 Day N 每一天都必须在 timeline 出现午餐项（Day 1 落地当天、Day N 返程当天同样需要，通常安排在活动/移动前后就近用餐）；晚餐可省略的只有"当天已乘机/高铁返程且在车用餐"的当晚。
+20. **预算禁止重复行**：budget 数组中每个类目只出现一次（is_per_person=false），禁止同时写"住宿"和"住宿（人均）"两行。人均金额由 budget_per_person 统一展示，不要在 budget 里重复。
 """
 
 
@@ -301,6 +295,8 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
 
     _validate_coords(result, flyai_sections)
     _recompute_budget_per_person(result, params)
+    _compute_days_nights(result, params)
+    _validate_booking_links(result)
     return result
 
 
@@ -331,6 +327,35 @@ def _recompute_budget_per_person(result: dict, params: dict) -> None:
     stated = _money(result.get("budget_per_person"))
     if stated is None or abs(stated - per_person) > 20:
         result["budget_per_person"] = f"约¥{per_person}"
+
+
+def _compute_days_nights(result: dict, params: dict) -> None:
+    """根据入住/退房日期自动推导 X天Y晚，修正 LLM 常见的 off-by-one 错误。"""
+    from datetime import datetime
+    check_in = params.get("check_in", "")
+    check_out = params.get("check_out", "")
+    if not check_in or not check_out:
+        return
+    try:
+        d_in = datetime.fromisoformat(check_in)
+        d_out = datetime.fromisoformat(check_out)
+    except (ValueError, TypeError):
+        return
+    nights = (d_out - d_in).days
+    if nights <= 0:
+        return
+    days = nights + 1
+    correct_label = f"{days}天{nights}晚"
+    summary = result.get("summary", "")
+    result["summary"] = re.sub(r"\d+天\d+晚", correct_label, summary) or summary
+
+
+def _validate_booking_links(result: dict) -> None:
+    """校验 timeline 中的 booking_link 必须是真实 http(s) URL，否则置为 null。"""
+    for item in result.get("timeline", []):
+        link = item.get("booking_link")
+        if link and not re.match(r"^https?://", str(link)):
+            item["booking_link"] = None
 
 
 def _validate_coords(result: dict, flyai_sections: list) -> None:
@@ -506,4 +531,6 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id
     if not result:
         return current_plan
 
+    _recompute_budget_per_person(result, {"group_size": group_size})
+    _compute_days_nights(result, current_plan.get("params", {}))
     return result
