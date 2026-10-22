@@ -285,6 +285,8 @@
   border-radius: var(--radius-lg);
   font-size: 14px;
   line-height: 1.7;
+  /* 大纲等长文本在气泡里要保留换行，否则会挤成一整块 */
+  white-space: pre-wrap;
 }
 
 .message.assistant .message-content {
@@ -2765,8 +2767,15 @@ async function loadConversations() {
         state.conversation = conversations;
         // Render existing conversations
         conversations.forEach(msg => {
-          addMessage(msg.role, msg.content, null);
+          // 大纲消息带结构化 meta，直接还原成卡片；否则退回纯文本气泡
+          if (msg.meta && msg.meta.type === 'outline' && msg.meta.outline) {
+            showOutlineCard(msg.meta.outline, true);
+          } else {
+            addMessage(msg.role, msg.content, null);
+          }
         });
+        // 回放完历史才算“有消息”，否则欢迎卡会压在旧对话上面
+        applyLayoutState();
       }
     }
   } catch (e) {
@@ -3363,7 +3372,7 @@ function selectTransportMode(mode) {
 }
 
 // ── 行程大纲确认 ──────────────────────────────────────────
-function showOutlineCard(outline) {
+function showOutlineCard(outline, readonly = false) {
   const messages = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'outline-card';
@@ -3377,14 +3386,20 @@ function showOutlineCard(outline) {
           <span class="outline-type">${it.type || ''}</span>
         </div>`).join('')}
     </div>`).join('');
-  div.innerHTML = `
-    <div class="outline-card-title">📋 行程大纲 · 确认后开始生成完整方案</div>
-    ${outline.summary ? `<div class="outline-summary">${outline.summary}</div>` : ''}
-    ${daysHtml}
+  // 回放历史时按只读渲染：确认按钮已失效，标题也不该再提示「确认后生成」
+  const title = readonly
+    ? '📋 行程大纲'
+    : '📋 行程大纲 · 确认后开始生成完整方案';
+  const footer = readonly ? '' : `
     <div class="outline-actions">
       <button class="outline-confirm-btn" onclick="confirmOutline()">✅ 按此生成完整方案</button>
     </div>
-    <div class="outline-hint">如需调整，直接输入修改意见（如"第二天换个景点"），我会重新出大纲</div>
+    <div class="outline-hint">如需调整，直接输入修改意见（如"第二天换个景点"），我会重新出大纲</div>`;
+  div.innerHTML = `
+    <div class="outline-card-title">${title}</div>
+    ${outline.summary ? `<div class="outline-summary">${outline.summary}</div>` : ''}
+    ${daysHtml}
+    ${footer}
   `;
   messages.appendChild(div);
   scrollChatToBottom();

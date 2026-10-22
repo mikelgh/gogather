@@ -813,7 +813,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
             outline = None
         if outline:
             outline_text = structured_planner.outline_to_text(outline)
-            db.save_conversation(user["id"], "assistant", outline_text)
+            db.save_conversation(user["id"], "assistant", outline_text,
+                                 meta={"type": "outline", "outline": outline})
             return {
                 "type": "outline_proposal",
                 "message": outline_text,

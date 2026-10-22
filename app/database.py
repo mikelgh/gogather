@@ -96,6 +96,11 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id)")
 
+    # migration: 结构化消息体（如大纲卡片），让历史记录能还原成卡片而不是纯文本
+    conv_cols = [r["name"] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+    if "meta" not in conv_cols:
+        conn.execute("ALTER TABLE conversations ADD COLUMN meta TEXT")
+
     # migration: add plan_revisions table for version history
     conn.execute('''
         CREATE TABLE IF NOT EXISTS plan_revisions (
@@ -358,27 +363,37 @@ def build_plan_name(params: dict, fallback: str = "") -> str:
 
 # ── Conversations ────────────────────────────────────────
 
-def save_conversation(user_id: str, role: str, content: str) -> None:
+def save_conversation(user_id: str, role: str, content: str, meta: dict | None = None) -> None:
     from datetime import datetime
+    import json
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO conversations (user_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (user_id, role, content, datetime.now().isoformat()),
+        "INSERT INTO conversations (user_id, role, content, meta, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, role, content, json.dumps(meta, ensure_ascii=False) if meta else None,
+         datetime.now().isoformat()),
     )
     conn.commit()
     conn.close()
 
 
 def get_conversations(user_id: str, limit: int = 50) -> list[dict]:
+    import json
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT role, content, created_at FROM conversations "
+        "SELECT role, content, meta, created_at FROM conversations "
         "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
         (user_id, limit),
     ).fetchall()
     conn.close()
     # Reverse to get chronological order
-    return [{"role": r["role"], "content": r["content"], "created_at": r["created_at"]} for r in reversed(rows)]
+    out = []
+    for r in reversed(rows):
+        try:
+            meta = json.loads(r["meta"]) if r["meta"] else None
+        except (ValueError, TypeError):
+            meta = None
+        out.append({"role": r["role"], "content": r["content"], "meta": meta, "created_at": r["created_at"]})
+    return out
 
 
 def clear_conversations(user_id: str) -> None:
