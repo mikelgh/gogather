@@ -789,6 +789,23 @@ def api_delete_plan(plan_id: str, user: dict = Depends(get_current_user)):
     return {"message": "方案已删除"}
 
 
+@app.post("/api/plan/{plan_id}/regenerate")
+def api_regenerate_plan(plan_id: str, user: dict = Depends(get_current_user)):
+    """按原输入条件重新生成方案（不沿用旧大纲，产出新方案）。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+    params = plan.get("params") or {}
+    if not params.get("city"):
+        raise HTTPException(status_code=400, detail="该方案缺少出行参数，无法重新生成")
+    return _build_plan_ready(
+        params,
+        plan.get("original_input") or "",
+        plan.get("conversation") or [],
+        user["id"],
+    )
+
+
 @app.put("/api/plan/{plan_id}/task/{task_id}")
 def api_update_task(plan_id: str, task_id: str, req: TaskUpdateRequest, user: dict = Depends(get_current_user)):
     plan = db.update_task_status(plan_id, task_id, req.status, user_id=user["id"])

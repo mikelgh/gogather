@@ -2316,6 +2316,9 @@ body {
       <button class="plan-action-btn" onclick="sharePlan()">
         分享方案
       </button>
+      <button class="plan-action-btn" id="regenBtn" onclick="regeneratePlan()">
+        重新生成
+      </button>
       <button class="plan-action-btn" onclick="startOver()">
         新建方案
       </button>
@@ -3561,6 +3564,36 @@ function updateProgress() {
 }
 
 // ── Share ─────────────────────────────────────────────────
+async function regeneratePlan() {
+  if (!state.planId || state.isSending) return;
+  if (!confirm('将按原输入条件重新生成一份新方案（约 1-3 分钟），当前方案会保留在列表中。继续吗？')) return;
+  state.isSending = true;
+  const btn = document.getElementById('regenBtn');
+  btn.disabled = true;
+  btn.textContent = '正在重新生成…';
+  showToast('正在按原条件重新生成方案…', 'default');
+  try {
+    const resp = await authFetch(`/api/plan/${state.planId}/regenerate`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '重新生成失败');
+    state.plan = data.plan;
+    state.structured = data.structured || {};
+    state.planId = data.plan_id;
+    state.extractedParams = data.extracted_params || state.extractedParams;
+    localStorage.setItem('juxing_planId', data.plan_id);
+    document.getElementById('shareResult').style.display = 'none';
+    showToast('新方案已生成', 'success');
+    showPlan(data.plan, data.plan_id, data.structured);
+    loadPlanList();
+  } catch (err) {
+    showToast('重新生成失败：' + err.message, 'error');
+  } finally {
+    state.isSending = false;
+    btn.disabled = false;
+    btn.textContent = '重新生成';
+  }
+}
+
 async function sharePlan() {
   if (!state.planId) return;
   try {
