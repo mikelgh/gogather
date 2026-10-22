@@ -105,10 +105,17 @@ POI_COORDS = {
     "九寨沟": {
         "九寨沟风景区": (33.2667, 103.9167),
         "九寨沟": (33.2667, 103.9167),
+        "九寨千古情": (33.2617, 103.9217),
+        "九寨千古情景区": (33.2617, 103.9217),
     },
     "乐山": {
         "乐山大佛": (29.5467, 103.7767),
         "乐山大佛景区": (29.5467, 103.7767),
+        "峨眉山": (29.5467, 103.3367),
+        "峨眉山景区": (29.5467, 103.3367),
+        "报国寺": (29.5567, 103.3567),
+        "上中顺": (29.5567, 103.7717),
+        "上中顺特色街区": (29.5567, 103.7717),
     },
     "南京": {
         "中山陵": (32.0667, 118.8567),
@@ -154,6 +161,11 @@ def _detect_city_in_location(location: str, cities: list) -> str | None:
     # 尝试常见城市名（即使不在 cities 列表中）
     for city_name in CITY_COORDS.keys():
         if city_name in location:
+            return city_name
+    # 模糊匹配：地点中包含城市名的一部分（如"九寨千古情" → "九寨沟"）
+    for city_name in list(CITY_COORDS.keys()) + list(POI_COORDS.keys()):
+        # 取城市名的前 2 个字符进行匹配（如"九寨沟" → "九寨"）
+        if len(city_name) >= 2 and city_name[:2] in location:
             return city_name
     return None
 
