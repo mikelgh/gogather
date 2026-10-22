@@ -8,7 +8,8 @@ data/
 .gitignore
 .env
 .iso_test/
-vibe_images/
+vibe_images/*
+!vibe_images/submission/
 export/
 *.tar.gz
 *.db
