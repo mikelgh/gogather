@@ -14,6 +14,12 @@ OUTLINE_SYSTEM = """你是团体出行行程大纲规划师。根据用户参数
 4. 交通项写"出发地→目的地"形式即可，不写具体班次。
 5. 每天约 3 条安排，强度均衡，同一天的活动地点尽量相近。
 6. 若最近对话中已有此前的大纲且用户提出调整，基于原大纲修改，不要整体重写。
+7. **地理可行性（硬约束）**：
+   - 同一日的活动地点必须同城或邻近（相距<100km），禁止将超过200km的景点排为当日往返
+   - 跨城市/远郊景点（如从成都去九寨沟、从杭州去黄山）必须占用完整的交通时段并安排当地住宿，不得当日往返
+   - 每天纯交通时间（含接驳）不得超过8小时
+8. **动线连贯性**：第 N 天结束地点应与第 N+1 天开始地点相近，禁止今天在成都、明天一早出现在600km外的乐山这种断裂动线。
+9. **返程日**：最后一天上午或中午必须安排返程交通（返回出发地），当天下午不排需要深度游览的活动。
 
 严格返回 JSON（不要 markdown 代码块）：
 {
@@ -128,6 +134,10 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
 18. **budget_per_person 必须算出来**：= 所有 `is_per_person=false` 的 budget 条目金额之和 ÷ 人数。禁止凭印象取整或估算；先加总再相除，结果与各项明细必须自洽。
 19. **每天都要有午餐**：Day 1 至 Day N 每一天都必须在 timeline 出现午餐项（Day 1 落地当天、Day N 返程当天同样需要，通常安排在活动/移动前后就近用餐）；晚餐可省略的只有"当天已乘机/高铁返程且在车用餐"的当晚。
 20. **预算禁止重复行**：budget 数组中每个类目只出现一次（is_per_person=false），禁止同时写"住宿"和"住宿（人均）"两行。人均金额由 budget_per_person 统一展示，不要在 budget 里重复。
+21. **地理可行性（硬约束）**：同一日的活动地点必须同城或邻近（相距<100km）。严禁将超过200km的景点排为当日往返（如从成都当日往返九寨沟约400km，不可能完成）。跨城市/远郊景点必须安排当地住宿，并占用完整交通时段。每天纯交通时间（含接驳）不得超过8小时。
+22. **机场/车站名称必须与飞猪结果严格一致**：航班/车次的起降机场/车站名称必须照抄飞猪结果，禁止凭印象替换。例如飞猪显示"天府机场"就写天府机场，禁止写成双流机场。同城有多个机场/车站时尤其注意。
+23. **返程完整性（硬约束）**：行程最后一天必须包含返程交通安排（航班/车次/大巴），从目的地返回出发地。若飞猪结果确实无返程数据，timeline 最后一项必须写"需自行预订返程交通"并在 notes 中说明，不允许完全遗漏返程。
+24. **时间一致性**：景点开放时间描述必须与安排时间匹配。写"7:30开园即入"则安排时间必须是7:30左右，不能排15:30。同一天内的时间顺序必须单调递增（上午→下午→晚上）。
 """
 
 
@@ -293,6 +303,23 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
     if not result:
         return _fallback_structured(params, flyai_sections)
 
+    # 校验-重试：发现问题则注入 prompt 重试一次，取问题更少的版本
+    issues = _run_validators(result, params, flyai_sections)
+    if issues:
+        retry_prompt = (
+            user_prompt
+            + "\n\n==== 上次生成方案存在的问题（必须在本次修正） ====\n"
+            + "\n".join(f"- {i}" for i in issues)
+            + "\n\n请重新生成完整 JSON，确保以上问题全部得到解决。"
+        )
+        retry_result = _llm.complete_json(STRUCTURED_PLAN_SYSTEM, retry_prompt, max_tokens=4000,
+                                          user_id=user_id, plan_id=plan_id,
+                                          action="generate_structured_plan_retry")
+        if retry_result:
+            retry_issues = _run_validators(retry_result, params, flyai_sections)
+            if len(retry_issues) < len(issues):
+                result = retry_result
+
     _validate_coords(result, flyai_sections)
     _recompute_budget_per_person(result, params)
     _compute_days_nights(result, params)
@@ -406,6 +433,269 @@ def _validate_coords(result: dict, flyai_sections: list) -> None:
         except (TypeError, ValueError):
             item.pop("lat", None)
             item.pop("lng", None)
+
+
+# ── Post-generation validators ─────────────────────────────
+
+_RETURN_KEYWORDS = [
+    "返程", "返回", "回程", "送机", "送站", "归程",
+    "机场", "航班", "高铁", "动车", "火车", "车次", "大巴", "包车",
+]
+
+
+def _extract_day(time_range: str) -> int | None:
+    m = re.search(r"Day\s*(\d+)", str(time_range))
+    return int(m.group(1)) if m else None
+
+
+def _validate_return_transport(result: dict, params: dict) -> list[str]:
+    """最后一天必须包含返程交通（从目的地返回出发地）。"""
+    issues = []
+    timeline = result.get("timeline", [])
+    if not timeline:
+        return issues
+
+    last_day = 0
+    for item in timeline:
+        d = _extract_day(item.get("time_range", ""))
+        if d:
+            last_day = max(last_day, d)
+    if last_day == 0:
+        return issues
+
+    origin = params.get("origin", "")
+    has_return = False
+    for item in timeline:
+        d = _extract_day(item.get("time_range", ""))
+        if d != last_day:
+            continue
+        text = str(item.get("title", "")) + str(item.get("notes", ""))
+        if any(kw in text for kw in _RETURN_KEYWORDS):
+            # 确认是"返回 origin"方向，而非其他用途的交通工具
+            if origin and (origin in text or "返程" in text or "返回" in text or "送机" in text or "送站" in text):
+                has_return = True
+                break
+            if not origin:
+                has_return = True
+                break
+
+    if not has_return:
+        issues.append(
+            f"Day {last_day} 缺少返程交通：行程最后一天必须安排从目的地返回{origin or '出发地'}的"
+            f"航班/车次/大巴。若飞猪无返程数据，应在 timeline 标注\"需自行预订返程交通\""
+        )
+    return issues
+
+
+def _validate_budget_completeness(result: dict, params: dict) -> list[str]:
+    """timeline 中带 ¥ 价格的收费项必须在 budget 中有对应条目。
+    支持三种匹配：单价直接出现 / 单价×人数=总价 / 总价÷人数≈单价。"""
+    issues = []
+    timeline = result.get("timeline", [])
+    budget = result.get("budget", [])
+
+    budget_text = " ".join(
+        str(b.get("category", "")) + " " + str(b.get("description", "")) + " " + str(b.get("estimated_cost", ""))
+        for b in budget
+    ).replace(",", "")
+
+    # 收集 budget 各条目的金额数字
+    budget_amounts = set()
+    for b in budget:
+        for m in re.finditer(r"¥\s*([\d,]+)", str(b.get("estimated_cost", ""))):
+            budget_amounts.add(float(m.group(1).replace(",", "")))
+        for m in re.finditer(r"¥\s*([\d,]+)", str(b.get("description", ""))):
+            budget_amounts.add(float(m.group(1).replace(",", "")))
+
+    # 人数
+    size_m = re.search(r"\d+", str(params.get("group_size", "")))
+    group_size = int(size_m.group()) if size_m else 0
+
+    for item in timeline:
+        price_str = str(item.get("price", ""))
+        title = str(item.get("title", ""))
+
+        if not price_str or "免费" in price_str or "无费用" in price_str:
+            continue
+        if "待确认" in price_str or "点击预订" in price_str:
+            continue
+
+        amounts = re.findall(r"¥\s*([\d,]+(?:\.\d+)?)", price_str)
+        if not amounts:
+            continue
+
+        found = False
+        for a_str in amounts:
+            a = float(a_str.replace(",", ""))
+            # 1. 单价直接出现在 budget 中
+            if a_str.replace(",", "") in budget_text:
+                found = True
+                break
+            # 2. 总价 = 单价 × 人数 出现在 budget 中
+            if group_size and a * group_size in budget_amounts:
+                found = True
+                break
+            # 3. budget 某金额 ÷ 人数 ≈ 单价（±5%）
+            if group_size:
+                for ba in budget_amounts:
+                    if ba / group_size > 0 and abs(ba / group_size - a) / a < 0.05:
+                        found = True
+                        break
+            if found:
+                break
+
+        if not found:
+            issues.append(
+                f"timeline「{title}」价格 {price_str} 未在 budget 中找到对应条目，"
+                f"违反规则17（收费项必须全部进预算）"
+            )
+    return issues
+
+
+def _validate_budget_arithmetic(result: dict, params: dict) -> list[str]:
+    """校验 budget 单行计算式与结果是否匹配（如 ¥400×15间×1晚 应等于 ¥6000）。"""
+    issues = []
+
+    for item in result.get("budget", []):
+        if item.get("is_per_person"):
+            continue
+        desc = str(item.get("description", ""))
+        cost_str = str(item.get("estimated_cost", ""))
+        stated = _money(cost_str)
+        if not stated or not desc:
+            continue
+        if "待确认" in desc or "需通过预订链接确认" in desc:
+            continue
+
+        # 按 + 拆分多组计算式
+        groups = re.split(r"[+＋]", desc)
+        calc_total = 0.0
+        has_calc = False
+
+        for group in groups:
+            g = group.replace("×", "*").replace("x", "*").replace("X", "*")
+            # ¥ 在开头: ¥100*30 或 ¥100*30*2
+            m = re.search(r"¥\s*([\d,]+(?:\.\d+)?)\s*[^\d*¥]*\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", g)
+            if m:
+                has_calc = True
+                unit = float(m.group(1).replace(",", ""))
+                q1 = float(m.group(2).replace(",", ""))
+                subtotal = unit * q1
+                # 继续匹配后续的 * qty（允许中文单位字符）
+                rest = g[m.end():]
+                for m2 in re.finditer(r"\*\s*[^\d*¥]*([\d,]+(?:\.\d+)?)", rest):
+                    subtotal *= float(m2.group(1).replace(",", ""))
+                calc_total += subtotal
+            else:
+                # ¥ 在末尾: 30人*3天*5餐*¥100
+                nums = re.findall(r"([\d,]+(?:\.\d+)?)\s*[^\d*+¥]*", g)
+                nums = [v for v in nums if v.strip()]
+                if len(nums) >= 4 and "¥" in g:
+                    has_calc = True
+                    vals = [float(v.replace(",", "")) for v in nums]
+                    subtotal = 1.0
+                    for v in vals:
+                        subtotal *= v
+                    calc_total += subtotal
+
+        if has_calc and abs(stated - calc_total) > max(calc_total * 0.05, 10):
+            issues.append(
+                f"预算「{item.get('category', '')}」({desc}) 算术错误："
+                f"按计算式应为 ¥{calc_total:.0f}，实际写 ¥{stated}"
+            )
+    return issues
+
+
+def _validate_time_consistency(result: dict) -> list[str]:
+    """检测 timeline 中明显的时间矛盾（如写"7:30开园"但排在15:30）。"""
+    issues = []
+
+    # 按天分组，检查每天内部时间是否单调递增
+    day_items: dict[int, list] = {}
+    for item in result.get("timeline", []):
+        d = _extract_day(item.get("time_range", ""))
+        if d:
+            day_items.setdefault(d, []).append(item)
+
+    for day, items in day_items.items():
+        prev_hour = -1
+        for item in items:
+            tr = str(item.get("time_range", ""))
+            m = re.search(r"(\d{1,2}):(\d{2})", tr)
+            if not m:
+                continue
+            hour = int(m.group(1))
+            if hour < prev_hour:
+                issues.append(
+                    f"Day {day}「{item.get('title', '')}」({tr}) 时间顺序异常："
+                    f"出现在更早时间之后，违反规则24（同一天时间单调递增）"
+                )
+            prev_hour = max(prev_hour, hour)
+
+    # 检查 notes 中的开放时间声明与实际安排是否矛盾
+    for item in result.get("timeline", []):
+        text = str(item.get("notes", "")) + str(item.get("title", ""))
+        tr = str(item.get("time_range", ""))
+
+        open_m = re.search(r"(\d{1,2})[:：.]?(\d{2})?\s*(?:开园|开门|开放|开始营业)", text)
+        if open_m:
+            open_hour = int(open_m.group(1))
+            sched_m = re.search(r"(\d{1,2}):(\d{2})", tr)
+            if sched_m:
+                sched_hour = int(sched_m.group(1))
+                if abs(sched_hour - open_hour) > 2:
+                    issues.append(
+                        f"「{item.get('title', '')}」时间矛盾："
+                        f"notes 写{open_hour}点开放，但安排在 {sched_hour}点"
+                    )
+    return issues
+
+
+def _validate_geographic_feasibility(result: dict) -> list[str]:
+    """同一日有坐标的两个活动地点相距>300km 时报警（如成都→九寨沟当日往返）。"""
+    from .transport import _haversine_km
+
+    issues = []
+    day_items: dict[int, list] = {}
+
+    for item in result.get("timeline", []):
+        d = _extract_day(item.get("time_range", ""))
+        lat, lng = item.get("lat"), item.get("lng")
+        if d and lat is not None and lng is not None:
+            try:
+                day_items.setdefault(d, []).append({
+                    "title": str(item.get("title", "")),
+                    "lat": float(lat),
+                    "lng": float(lng),
+                })
+            except (TypeError, ValueError):
+                continue
+
+    for day, items in day_items.items():
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                dist = _haversine_km(
+                    items[i]["lat"], items[i]["lng"],
+                    items[j]["lat"], items[j]["lng"],
+                )
+                if dist > 200:
+                    issues.append(
+                        f"Day {day} 地理不可行：「{items[i]['title']}」与"
+                        f"「{items[j]['title']}」相距约{dist}km，当日往返不可能完成，"
+                        f"违反规则21（禁止超200km景点当日往返）"
+                    )
+    return issues
+
+
+def _run_validators(result: dict, params: dict, flyai_sections: list) -> list[str]:
+    """运行全部后生成校验，返回问题描述列表。"""
+    issues = []
+    issues.extend(_validate_return_transport(result, params))
+    issues.extend(_validate_budget_completeness(result, params))
+    issues.extend(_validate_budget_arithmetic(result, params))
+    issues.extend(_validate_time_consistency(result))
+    issues.extend(_validate_geographic_feasibility(result))
+    return issues
 
 
 def _fallback_structured(params: dict, flyai_sections: list) -> dict:
