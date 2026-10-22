@@ -1,6 +1,8 @@
 """简易地理编码：把地点文本转成经纬度。
 
-MVP 用硬编码表覆盖主要城市的热门 POI，未命中时回退到城市中心坐标。
+MVP 用硬编码表覆盖主要城市的热门 POI，未命中时回退到高德地理编码 API，
+再回退到城市中心坐标。高德无城市约束时全国检索会命中异地同名 POI
+（如"田子坊"命中乌鲁木齐），因此所有 API 结果都要过候选城市距离校验。
 """
 
 # 城市中心坐标
@@ -20,6 +22,7 @@ CITY_COORDS = {
     "武汉": (30.5928, 114.3055),
     "西安": (34.3416, 108.9398),
     "重庆": (29.4316, 106.9123),
+    "苏州": (31.2989, 120.5853),
 }
 
 # 热门 POI 坐标（按城市分组）
@@ -64,8 +67,30 @@ POI_COORDS = {
         "迪士尼": (31.1444, 121.6604),
         "南京路": (31.2354, 121.4754),
         "豫园": (31.2274, 121.4914),
+        "城隍庙": (31.2270, 121.4920),
+        "田子坊": (31.2105, 121.4666),
+        "南翔馒头店": (31.2260, 121.4890),
+        "枫泾古镇": (30.8412, 120.9967),
+        "广富林": (31.0837, 121.1966),
+        "佘山": (31.0959, 121.1885),
+        "辰山植物园": (31.0695, 121.1800),
+        "虹桥机场": (31.1979, 121.3363),
+        "上海虹桥国际机场": (31.1979, 121.3363),
+        "浦东机场": (31.1508, 121.8056),
+        "上海浦东国际机场": (31.1508, 121.8056),
         "上海虹桥站": (31.1944, 121.3244),
         "上海站": (31.2504, 121.4554),
+    },
+    "苏州": {
+        "拙政园": (31.3255, 120.6294),
+        "平江路": (31.3158, 120.6311),
+        "虎丘": (31.3225, 120.5735),
+        "金鸡湖": (31.3160, 120.7090),
+        "观前街": (31.3110, 120.6220),
+        "同里": (31.1550, 120.7200),
+        "周庄": (31.1150, 120.8500),
+        "苏州站": (31.3300, 120.6130),
+        "苏州北站": (31.3760, 120.6080),
     },
     "北京": {
         "故宫": (39.9163, 116.3972),
@@ -170,11 +195,77 @@ POI_COORDS = {
 
 
 def _extract_cities(city: str) -> list:
-    """从多城市名称中提取所有城市名（如"成都 + 九寨沟 + 乐山" → ["成都", "九寨沟", "乐山"]）。"""
+    """提取城市列表。
+
+    "成都 + 九寨沟 + 乐山" → ["成都", "九寨沟", "乐山"]
+    "上海及周边城市" → ["上海"]（描述性表述中包含已知城市名）
+    无已知城市时保留原文，交由上层按原文使用。
+    """
     import re
-    # 按 +、,、，、/、→ 等分隔符拆分
-    parts = re.split(r'[+,，/、→\s]+', city)
-    return [p.strip() for p in parts if p.strip()]
+    if not city:
+        return []
+    known = []
+    for part in re.split(r"[+,，/、→\s]+", city):
+        part = part.strip()
+        if not part:
+            continue
+        matched = [c for c in sorted(CITY_COORDS, key=len, reverse=True) if c in part]
+        for c in matched:
+            if c not in known:
+                known.append(c)
+        if not matched and part not in known:
+            known.append(part)
+    return known
+
+
+# 候选城市中心 150km 内的坐标才可信：既覆盖“上海及周边城市”里的苏州等卫星城，
+# 又能排除高德全国检索命中的异地同名 POI（田子坊→乌鲁木齐、豫园→深圳等）
+_MAX_POI_DIST_KM = 150.0
+
+# 带城市提示的高德结果只信命中城市周边，避免同名 POI 被错配到主城市另一区
+_HINT_MAX_DIST_KM = 60.0
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    from math import asin, cos, radians, sin, sqrt
+    dlat, dlng = radians(lat2 - lat1), radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 2 * asin(sqrt(a)) * 6371.0
+
+
+def _plausible(lat, lng, centers: list, max_km: float = _MAX_POI_DIST_KM) -> bool:
+    """坐标是否落在任一候选城市中心附近；无候选城市时不做限制。"""
+    if not centers:
+        return True
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return False
+    return any(_haversine_km(lat, lng, clat, clng) <= max_km for clat, clng in centers)
+
+
+def _segments(location: str) -> list:
+    """地点文本及其括号补充信息（如"得月楼（平江路旗舰店）" → ["得月楼", "平江路旗舰店"]）。"""
+    import re
+    parts = [re.sub(r"[（(].*?[)）]", "", location).strip()]
+    parts += [s.strip() for s in re.findall(r"[（(]([^)）]*)[)）]", location) if s.strip()]
+    return [p for p in parts if p]
+
+
+def _cross_city_poi(location: str) -> tuple[float, float] | None:
+    """在其他城市的 POI 表里找同名地点（处理"上海及周边"行程中的苏州/杭州地点）。
+
+    只在候选城市表未命中后调用；长城市名先查，避免"南京路"命中南京。
+    """
+    for seg in _segments(location):
+        best = None
+        for city_name, pois in POI_COORDS.items():
+            for poi_name, coords in pois.items():
+                if poi_name in seg and (best is None or len(poi_name) > len(best[0])):
+                    best = (poi_name, coords)
+        if best:
+            return best[1]
+    return None
 
 
 def _detect_city_in_location(location: str, cities: list) -> str | None:
@@ -289,29 +380,48 @@ def geocode_timeline(timeline: list, city: str) -> list:
     坐标来源优先级：
     1. timeline 项自带的 lat/lng（飞猪坐标，LLM 透传 + 校验）
     2. 硬编码 POI 表 / 路线规则（不含城市中心兜底）
-    3. 高德地理编码 API（需配置 AMAP_API_KEY）
+    3. 高德地理编码 API（需配置 AMAP_API_KEY），逐个城市提示重试
     4. 城市中心兜底（保证地图总能展示）
+
+    高德在无城市约束时会命中异地同名 POI（田子坊→乌鲁木齐、豫园→深圳），
+    因此第 3 步的所有结果都要通过候选城市距离校验，不合格就换提示城市或拒绝。
     """
+    cities = _extract_cities(city)
+    centers = [CITY_COORDS[c] for c in cities if c in CITY_COORDS]
+    hints = [c for c in cities if c in CITY_COORDS] or [""]
+
     result = []
     for item in timeline:
         item_copy = dict(item)
-        if item_copy.get("lat") and item_copy.get("lng"):
+        loc = item.get("location", "") or item.get("title", "")
+        # 路线项（"A → B"）落在出发侧：接驳/航班标记起点即可
+        geo_loc = loc.split("\u2192")[0].strip() if "\u2192" in loc else loc
+
+        lat, lng = item_copy.get("lat"), item_copy.get("lng")
+        if lat and lng and ("\u2192" in loc or _plausible(lat, lng, centers)):
             result.append(item_copy)
             continue
-        loc = item.get("location", "") or item.get("title", "")
-        # 硬编码精确匹配（POI 表 / 路线规则）
-        coords = geocode(loc, city, fallback_center=False)
+        item_copy.pop("lat", None)
+        item_copy.pop("lng", None)
+
+        coords = geocode(geo_loc, city, fallback_center=False) or _cross_city_poi(geo_loc)
         if not coords:
             from . import amap_geocode
-            # 地址文本通常已含城市语境，高德可全文匹配；只有能明确检测到城市时才加约束，
-            # 多城市行程传首个城市会导致跨城市地点（如 city=昆明 查 丽江古城）编码失败
-            hint = _detect_city_in_location(loc, _extract_cities(city)) or ""
-            coords = amap_geocode.geocode(loc, hint)
-            if not coords and hint:
-                coords = amap_geocode.geocode(loc, "")
-        # 城市中心兜底（含路线出发/到达城市中心）
+            detected = _detect_city_in_location(geo_loc, cities)
+            # 先按文本中的城市名检索，再全国检索（覆盖周边城市），最后才退到行程主城市。
+            # 高德的 city 参数不做严格过滤（"平江路"+上海 会返回上海某条同名路），
+            # 所以城市提示的结果按 _HINT_MAX_DIST_KM 收紧，全国结果按 150km 放宽。
+            attempts = ([(detected, _HINT_MAX_DIST_KM)] if detected else []) \
+                + [("", _MAX_POI_DIST_KM)] \
+                + [(c, _HINT_MAX_DIST_KM) for c in hints if c and c != detected]
+            for hint, max_km in attempts:
+                coords = amap_geocode.geocode(geo_loc, hint)
+                if coords and not _plausible(coords[0], coords[1], centers, max_km):
+                    coords = None
+                if coords:
+                    break
         if not coords:
-            coords = geocode(loc, city)
+            coords = geocode(geo_loc, city)
         if coords:
             item_copy["lat"] = coords[0]
             item_copy["lng"] = coords[1]
