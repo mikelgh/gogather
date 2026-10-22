@@ -12,6 +12,7 @@
 """
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 from . import flyai_client as flyai
 from . import llm_client as llm
@@ -430,6 +431,9 @@ def plan(inp: dict) -> dict:
             "② 未配置 FLYAI_API_KEY，命中公共体验额度且已限流；③ 网络/CLI 异常。"
         )
 
+    # 价格时效基线：全部查询完成的时间点（验价/过期预警以此为基准）
+    data_captured_at = datetime.now().isoformat(timespec="seconds")
+
     return {
         "scenario": scenario,
         "markdown": markdown,
@@ -438,4 +442,5 @@ def plan(inp: dict) -> dict:
         "used_llm": used_llm,
         "mode": mode,
         "city": inp.get("city", ""),
+        "data_captured_at": data_captured_at,
     }

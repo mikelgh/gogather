@@ -137,6 +137,19 @@
   line-height: 1.7;
 }
 
+.plan-meta {
+  margin: -10px 0 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.budget-total .budget-captured-at {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
 .section {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -673,11 +686,21 @@ function renderPlan(plan) {
   document.querySelector('meta[property="og:title"]').content = title;
   document.querySelector('meta[property="og:description"]').content = desc;
 
+  const fmtTime = (iso) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+  const capturedRaw = plan.data_captured_at || plan.created_at || '';
+  const generatedRaw = plan.created_at || plan.data_captured_at || '';
+
   let html = `
     <div class="plan-header" style="position: relative; border-radius: 16px; margin-bottom: 24px; overflow: hidden;">
       <img src="/share/${code}/cover.png" alt="${title}" style="width: 100%; height: 300px; object-fit: cover; display: block;">
       <span class="plan-badge" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.95); color: var(--primary); padding: 6px 14px; border-radius: 12px; font-size: 12px; font-weight: 600;">已生成</span>
     </div>
+    <p class="plan-meta">方案生成于 ${fmtTime(generatedRaw) || '—'} · 飞猪价格获取于 ${fmtTime(capturedRaw) || '—'}（参考价，预订前请以实时报价为准）</p>
   `;
 
   if (timeline.length > 0) {
@@ -728,6 +751,7 @@ function renderPlan(plan) {
           <div class="budget-total">
             <div class="label">人均预算</div>
             <div class="amount">${plan.budget_per_person}</div>
+            ${capturedRaw ? `<div class="budget-captured-at">价格数据获取于 ${fmtTime(capturedRaw)} · 为查询时点参考价</div>` : ''}
           </div>
         ` : ''}
       </div>

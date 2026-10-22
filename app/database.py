@@ -52,6 +52,7 @@ def init_db():
             markdown TEXT,
             warnings TEXT,
             used_llm INTEGER DEFAULT 0,
+            data_captured_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -64,6 +65,10 @@ def init_db():
             INSERT OR IGNORE INTO users (id, username, password_hash, created_at)
             VALUES ('legacy', 'legacy', '', '')
         """)
+
+    # migration: 价格时效基线（飞猪查询批次完成时间）
+    if "data_captured_at" not in cols:
+        conn.execute("ALTER TABLE plans ADD COLUMN data_captured_at TEXT")
 
     # migration: add github_id and avatar_url columns for OAuth
     user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
@@ -251,16 +256,19 @@ def save_plan(plan_dict: dict) -> dict:
         "markdown": plan_dict.get("markdown", ""),
         "warnings": json.dumps(plan_dict.get("warnings", []), ensure_ascii=False),
         "used_llm": int(plan_dict.get("used_llm", False)),
+        "data_captured_at": plan_dict.get("data_captured_at"),
     }
     conn.execute("""
         INSERT OR REPLACE INTO plans (
             id, user_id, created_at, updated_at, phase, original_input, conversation,
             params, summary, action_items, timeline, budget, room_allocation,
-            budget_per_person, share_code, members, markdown, warnings, used_llm
+            budget_per_person, share_code, members, markdown, warnings, used_llm,
+            data_captured_at
         ) VALUES (
             :id, :user_id, :created_at, :updated_at, :phase, :original_input, :conversation,
             :params, :summary, :action_items, :timeline, :budget, :room_allocation,
-            :budget_per_person, :share_code, :members, :markdown, :warnings, :used_llm
+            :budget_per_person, :share_code, :members, :markdown, :warnings, :used_llm,
+            :data_captured_at
         )
     """, data)
     conn.commit()

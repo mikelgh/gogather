@@ -762,6 +762,7 @@ def _build_plan_ready(extracted: dict, original_message: str, conversation: list
         "markdown": plan_result.get("markdown", ""),
         "warnings": plan_result.get("warnings", []),
         "used_llm": plan_result.get("used_llm", False),
+        "data_captured_at": plan_result.get("data_captured_at", now),
     }
     db.save_plan(plan_dict)
     db.generate_share_code(plan_id, user_id=user["id"])
