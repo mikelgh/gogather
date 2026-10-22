@@ -3,6 +3,7 @@ import os
 import re
 import uuid
 import secrets
+import logging
 from datetime import datetime
 from urllib.parse import urlencode
 
@@ -18,6 +19,8 @@ from . import auth
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 db.init_db()
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="聚行 · 飞猪 AI 旅行助手")
 
@@ -85,6 +88,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UsernameRequest(BaseModel):
+    username: str
+
+
 # ── Auth Dependency ───────────────────────────────────────
 
 def get_current_user(authorization: str | None = Header(None)) -> dict:
@@ -109,14 +116,14 @@ def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
     return {"id": payload["sub"], "username": payload.get("username", "")}
 
 
-# Admin whitelist - only this GitHub username can access admin endpoints
-ADMIN_GITHUB_USERNAMES = {"mikelgh"}
+# Admin whitelist - only this account can access admin endpoints（按 user id 判定，改昵称不会掉管理员）
+ADMIN_USER_IDS = {"32798410-ccb"}
 
 
 def get_admin_user(authorization: str | None = Header(None)) -> dict:
-    """管理员认证：仅允许白名单内的 GitHub 用户。"""
+    """管理员认证：仅允许白名单内的账号。"""
     user = get_current_user(authorization)
-    if user["username"] not in ADMIN_GITHUB_USERNAMES:
+    if user["id"] not in ADMIN_USER_IDS:
         raise HTTPException(status_code=403, detail="无管理员权限")
     return user
 
@@ -349,6 +356,25 @@ def api_me(user: dict = Depends(get_current_user)):
     return {"id": user["id"], "username": user["username"]}
 
 
+# \w 已覆盖中英文/数字/下划线；昵称会出现在 OAuth 回跳 URL 与管理后台表格里，限制字符集可避免注入
+USERNAME_RE = re.compile(r"^[\w.-]{2,20}$")
+
+
+@app.patch("/api/me/username")
+def api_update_username(req: UsernameRequest, user: dict = Depends(get_current_user)):
+    name = (req.username or "").strip()
+    if not USERNAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="昵称需为 2-20 位中英文、数字、下划线、点或减号")
+    if name == user["username"]:
+        return {"id": user["id"], "username": name, "token": auth.create_access_token(user["id"], name)}
+    if db.get_user_by_username(name):
+        raise HTTPException(status_code=409, detail="该昵称已被占用，换一个试试")
+    if not db.update_username(user["id"], name):
+        raise HTTPException(status_code=409, detail="昵称修改失败，该昵称可能已被占用")
+    # 令牌里带旧昵称，重新签发让前端立刻生效
+    return {"id": user["id"], "username": name, "token": auth.create_access_token(user["id"], name)}
+
+
 # ── GitHub OAuth ──────────────────────────────────────────
 
 _oauth_states: dict[str, float] = {}
@@ -477,48 +503,75 @@ async def alipay_callback(auth_code: str = "", code: str = "", state: str = ""):
     """Alipay callback: auth_code or code param depending on API version."""
     auth_code = auth_code or code
     if state not in _oauth_states:
-        raise HTTPException(status_code=400, detail="无效的 state 参数")
+        raise HTTPException(status_code=400, detail="无效的 state 参数（登录会话已过期，请重新扫码）")
     _oauth_states.pop(state)
 
     from . import alipay_oauth
     import httpx as _httpx
 
+    def _fail(status: int, stage: str, data: dict) -> None:
+        err = (data or {}).get("error_response", {}) or {}
+        detail = err.get("sub_msg") or err.get("msg") or "未知错误"
+        log.warning("支付宝登录失败[%s]: %s | resp=%s", stage, detail, str(data)[:300])
+        raise HTTPException(status_code=status, detail=f"{stage}失败: {detail}")
+
     # Exchange auth_code for access_token
     token_params = alipay_oauth.build_token_params(
         config.ALIPAY_APP_ID, auth_code, config.ALIPAY_PRIVATE_KEY
     )
-    async with _httpx.AsyncClient(timeout=30) as client:
-        token_resp = await client.get(
-            "https://openapi.alipay.com/gateway.do",
-            params=token_params,
-        )
-        token_data = token_resp.json()
+    try:
+        async with _httpx.AsyncClient(timeout=30) as client:
+            token_resp = await client.get(
+                "https://openapi.alipay.com/gateway.do",
+                params=token_params,
+            )
+            token_data = token_resp.json()
+    except Exception as e:
+        log.warning("支付宝 token 接口调用异常: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=502, detail="支付宝接口调用失败，请稍后重试")
 
     alipay_response = token_data.get("alipay_system_oauth_token_response", {})
     access_token = alipay_response.get("access_token")
     alipay_user_id = alipay_response.get("user_id")
     if not access_token:
-        error_resp = token_data.get("error_response", {})
-        raise HTTPException(
-            status_code=400,
-            detail=f"支付宝授权失败: {error_resp.get('sub_msg', '未知错误')}"
-        )
+        _fail(400, "支付宝授权", token_data)
 
     # Get user info
     userinfo_params = alipay_oauth.build_userinfo_params(
         config.ALIPAY_APP_ID, access_token, config.ALIPAY_PRIVATE_KEY
     )
-    async with _httpx.AsyncClient(timeout=30) as client:
-        info_resp = await client.get(
-            "https://openapi.alipay.com/gateway.do",
-            params=userinfo_params,
-        )
-        info_data = info_resp.json()
+    try:
+        async with _httpx.AsyncClient(timeout=30) as client:
+            info_resp = await client.get(
+                "https://openapi.alipay.com/gateway.do",
+                params=userinfo_params,
+            )
+            info_data = info_resp.json()
+    except Exception as e:
+        log.warning("支付宝用户信息接口调用异常: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=502, detail="支付宝接口调用失败，请稍后重试")
 
     user_info = info_data.get("alipay_user_info_share_response", {})
-    alipay_user_id = user_info.get("user_id") or alipay_user_id
-    nick_name = user_info.get("nick_name") or user_info.get("nick") or f"alipay_{alipay_user_id[:6]}"
-    avatar_url = user_info.get("avatar", "")
+    if not user_info:
+        _fail(400, "获取支付宝用户信息", info_data)
+    # 新版 OAuth 2.0（开放平台应用选择 open_id 作为用户标识）只返回 open_id，没有 user_id
+    alipay_open_id = alipay_response.get("open_id") or user_info.get("open_id") or ""
+    alipay_user_id = user_info.get("user_id") or alipay_user_id or alipay_open_id
+    if not alipay_user_id:
+        # 缺 user_id 时旧代码会对 None 切片抛 TypeError（前端只看到 Internal Server Error）
+        log.warning(
+            "支付宝登录失败[用户标识缺失]: token_resp=%s userinfo_resp=%s",
+            str(alipay_response)[:300], str(user_info)[:300],
+        )
+        reason = user_info.get("sub_msg") or user_info.get("msg") or "接口未返回 user_id"
+        raise HTTPException(
+            status_code=400,
+            detail=f"支付宝未返回用户标识（{reason}），请确认应用已开通 auth_user 授权及用户信息接口权限",
+        )
+    nick_name = (user_info.get("nick_name") or user_info.get("nick") or "").strip()
+    if not nick_name:
+        nick_name = f"alipay_{alipay_user_id[-6:]}"
+    avatar_url = user_info.get("avatar") or ""
 
     # Find or create user
     existing = db.get_user_by_alipay_id(alipay_user_id)
@@ -528,14 +581,19 @@ async def alipay_callback(auth_code: str = "", code: str = "", state: str = ""):
 
     existing_by_name = db.get_user_by_username(nick_name)
     if existing_by_name:
-        db.link_alipay_account(existing_by_name["id"], alipay_user_id, avatar_url)
+        # 绑定失败说明该支付宝已绑到别的账号，此时不能再登录进同名账号
+        if not db.link_alipay_account(existing_by_name["id"], alipay_user_id, avatar_url):
+            raise HTTPException(
+                status_code=409,
+                detail=f"该支付宝账号已绑定到其他用户，无法合并到「{nick_name}」",
+            )
         token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
         return RedirectResponse(f"/?token={token}&username={existing_by_name['username']}")
 
     user_id = str(uuid.uuid4())[:12]
     new_user = db.create_alipay_user(user_id, nick_name, alipay_user_id, avatar_url)
     if not new_user:
-        raise HTTPException(status_code=500, detail="创建用户失败")
+        raise HTTPException(status_code=409, detail="创建用户失败（用户名或支付宝账号已被占用）")
 
     token = auth.create_access_token(new_user["id"], new_user["username"])
     return RedirectResponse(f"/?token={token}&username={new_user['username']}")
