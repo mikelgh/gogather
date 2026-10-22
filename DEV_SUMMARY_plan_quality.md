@@ -59,6 +59,8 @@
 
 ### 3.3 校验-重试机制
 
+> 注：本节机制已在第二轮迭代升级为三层分层修复管线（代码修复 → LLM 补丁 → 整体重试），见 [§7.2](#72-分层修复管线p0-2)。
+
 `generate_structured_plan()` 流程变为：
 
 ```
@@ -95,9 +97,9 @@
 
 ## 五、已知限制与后续方向
 
-1. **输出 token 上限**：qwen-plus 输出上限约 8K token。超长方案（50人×7天×3城）JSON 会截断，实测需回退到 MiniMax-M3（`max_tokens=16000`）生成。可选优化：按天分片生成后合并，或对超长方案精简 timeline 字段。
+1. **输出 token 上限**：qwen-plus 输出上限约 8K token。超长方案（50人×7天×3城）JSON 会截断，实测需回退到 MiniMax-M3（`max_tokens=16000`）生成。可选优化：按天分片生成后合并，或对超长方案精简 timeline 字段。→ **✅ 已解决**：按天分片生成兜底（§7.4）
 2. **地理校验依赖坐标**：只有带 lat/lng 的项参与距离计算；坐标缺失时（如"九寨沟当地酒店"无坐标）无法报警。可选优化：接入地名 geocode 兜底（`geocode.py` 已有基础）。
-3. **票价时效性**：飞猪返回的是搜索时点参考价（如西安 G1970 实际 ¥712 vs 数据 ¥688）。校验器能保证"算式自洽"，不能保证"票价最新"。建议长期方案：生成后对关键车次/航班做一次实时验价。
+3. **票价时效性**：飞猪返回的是搜索时点参考价（如西安 G1970 实际 ¥712 vs 数据 ¥688）。校验器能保证"算式自洽"，不能保证"票价最新"。建议长期方案：生成后对关键车次/航班做一次实时验价。→ **✅ 已解决**：价格时效标注 + 票价验价（§7.1、§7.3）
 4. **接驳段距离盲区**：跨城移动若作为独立"交通"节点（无终点坐标），地理校验不覆盖。规则 21/8 的 prompt 约束是主要防线。
 5. **"待确认"项口径**：无价格项不计入预算总额，导致人均可能偏低（杭州10人方案人均 ¥359.5 仅为已定价项之和）。前端已注明"需通过预订链接确认"，可考虑增加"含估算区间"的人均展示。
 
@@ -110,3 +112,144 @@
   - `generate_structured_plan()` 集成校验-重试
   - `_validate_budget_completeness()` 支持 params，消除单价/总价关联误报
 - 数据：3 份方案重生成并落库（`h5ydji` / `9nwhqj` / `ca1gmt`）
+
+---
+
+# 第二轮迭代：价格时效 + P0 质量保障
+
+## 七、迭代总结（2026-10-22）
+
+> 关联提交：`9e84242`（价格时效）、`5a1fb4c`（P0 质量保障）
+> 范围：`app/structured_planner.py`、`app/price_check.py`（新增）、`app/main.py`、`app/database.py`、`app/planner.py`、`static/index.html`、`static/share.html`、`tests/`（新增 8 个文件）
+
+### 7.1 价格时效标注（`9e84242`）
+
+飞猪价格是搜索时点参考价，方案里不注明获取时间会误导用户当作实时价：
+
+- `planner.plan()` 记录 `data_captured_at`（全部飞猪查询完成时点），随方案落库（`plans` 表新增列 + 迁移）
+- 前端方案页/分享页展示「生成于 X · 飞猪价格获取于 Y（参考价，预订前请以实时报价为准）」，预算区另注明获取时间
+- 数据获取超 3 天时显示「⚠️ 价格数据已超 N 天，建议重新生成」
+
+### 7.2 分层修复管线（P0-2）
+
+原"校验-重试"只有整体重试一条路（§3.3）。升级为三层，按成本递增、逐层消化：
+
+| 层 | 手段 | 覆盖问题 | 成本 |
+|---|---|---|---|
+| ① 代码级确定性修复 | 算式与结果不符→按算式改写 `estimated_cost`；同日时间紊乱→保守排序（当天所有项均可解析时间才排） | 预算算术、时间顺序 | 0 次 LLM 调用 |
+| ② LLM 针对性补丁 | 只喂受影响时间线项 + 飞猪数据（每段截 1200 字），输出补丁 JSON（budget 全量替换 + timeline_additions 按天插入） | 缺返程、预算漏项 | 1 次小调用（max_tokens=3000） |
+| ③ 整体重试兜底 | 原 §3.3 机制保留，问题列表注入 prompt 重生成 | 地理不可行、开放时间矛盾等结构性问题 | 1 次全量调用 |
+
+关键设计：
+
+- 每层修复后重跑全部校验，**只在问题数减少时采纳**（与原重试同原则，不破坏既有体验）
+- 算术解析抽取为共享函数 `_calc_total_from_desc()`，校验器与修复器**口径强制一致**
+- 修复后自动重算人均预算；补丁项插入保持按天分块顺序，返程项落到末天块尾
+
+### 7.3 票价验价（P0-3）
+
+- 新模块 `app/price_check.py` + `POST /api/plan/{plan_id}/verify_prices`（仅方案所有者）
+- 提取 timeline 中的航班/车次号（复用 planner 编造检测正则），按（交通类型 × 去返程）最多 4 条查询并行执行
+- 输出对比报告：`unchanged`（±5%）/ `changed` / `not_found` / `no_price` / `no_old_price`，**只报告不改方案**，实际价格以飞猪预订页为准
+- 前端预算页「🔍 票价验价」按钮 + 结果面板；切换方案自动清空面板并丢弃过期响应（flyai 查询可能数十秒）
+- 实测：G7536 实时 ¥57 vs 方案 ¥73 → 正确报「下降 ¥16（21.9%）」
+
+### 7.4 按天分片生成兜底（P0-4）
+
+仅当整体生成彻底失败（超长截断/供应商全挂）时触发，替代原 `_fallback_structured` 垃圾兜底，**正常路径零改动**：
+
+- 每天 1 次 LLM 调用（`DAY_SLICE_SYSTEM`，max_tokens=2000，输出短不截断），prompt 注入当天大纲框架 + 前一天末尾安排（动线衔接）+ 末天返程硬约束
+- 代码层聚合：预算按类目合并（金额累加、算式用 ` + ` 连接，可被校验器逐组验算）、action_items 去重补 id、房间分配纯代码计算（不依赖 LLM）
+- 单天失败不影响其余天（summary 注明），全部失败才回退 `_fallback_structured`
+- 实测（真实 LLM）：2 天分片正确拼合，预算 ¥5040 → 人均 ¥420，末天含返程交代
+
+### 7.5 测试安全网（P0-1）
+
+- `tests/` 8 个文件 **106 个用例**：校验器 34 / 分层修复 12 / 按天分片 10 / 票价验价 14（含 API 层 3）/ 方案数学 12 / transport 10 / API 基础流程 14；pytest 入 dev 依赖组
+- 临时库隔离（monkeypatch `DB_PATH`），不触真实数据；LLM 一律 mock，全套 <1.5s
+- 上线即抓出 1 个真实 500 隐患（group_size 非数字时 `int('')` 崩溃）
+
+### 7.6 遗留问题
+
+- qwen-plus 403（配额/限流）在本轮出现过两次，靠 minimax 兜底成功——**大赛演示前建议确认 qwen 配额**
+- §五 中 2/4/5（地理校验坐标依赖、接驳段盲区、待确认项口径）仍未解，列为 P1 候选
+
+## 八、第二轮变更清单
+
+- `app/structured_planner.py`（+430 行左右）
+  - `_apply_code_fixes()` / `_patch_plan_issues()` + `_PATCH_SYSTEM` + `_PATCHABLE_MARKERS`
+  - `_calc_total_from_desc()` 共享算术解析（校验器/修复器共用）
+  - `DAY_SLICE_SYSTEM` + `_generate_plan_by_days()` + `_merge_day_budgets()` / `_merge_day_action_items()` / `_infer_day_count()` / `_group_label()`
+  - `generate_structured_plan()` 接入三层修复与分片兜底
+- `app/price_check.py`（新增）：验价逻辑（编号提取/结构化解析/并行重查/对比报告）
+- `app/main.py`：`/api/plan/{id}/verify_prices` 端点
+- `static/index.html`：预算页验价按钮+结果面板（含切换清空/过期丢弃）、顶栏「新建方案」按钮、侧栏标题样式
+- `app/planner.py` / `app/database.py`：`data_captured_at` 采集与落库
+- `tests/`（新增 8 文件）+ `pyproject.toml`（pytest dev 组）
+
+## 九、第三轮：三层测试补齐（2026-10-22）
+
+按「业务主路径 > 数据层 > 编排层」优先级补齐端点与编排测试（41 个新用例，总计 10 文件 147 用例）。测试当场抓出 2 个线上真实 bug。
+
+### 9.1 三层测试
+
+| 层级 | 文件 | 用例 | 覆盖点 |
+|---|---|---|---|
+| 业务主路径 | `tests/test_api.py` | +16 | chat 追问/交通推荐/预算档与 UI 兜底/大纲提案/大纲失败回退；generate_plan 落库+原始诉求还原+参数默认值；revise 更新/404/500。mock `extract_params` / `generate_outline` / `plan` / `generate_structured_plan` / `revise_plan` |
+| 修订历史 | `tests/test_revisions.py`（新） | 12 | 快照存取/倒序/limit、rollback 字段还原与越权拒绝（他人快照/未知版本/错误用户）、回滚 API 自动存「回滚前快照」 |
+| planner 编排 | `tests/test_planner.py`（新） | 13 | `StubFlyai` 整体打桩：六路并行查询参数校验、中距离飞机/高铁双查对比、空结果→ai_search 兜底→告警、无日期跳过交通查询、异常不炸主流程、`plan()` 润色/原始数据双路径、编造检测正反例 |
+
+### 9.2 测试抓出的线上 bug（已修复）
+
+1. **`_build_plan_ready` NameError（严重）**：`app/main.py` 引用 `user["id"]`，但函数签名只收 `user_id` 字符串——所有 plan_ready 路径（对话生成回退、`/api/generate_plan`）在方案落库后必然 500，前端表现为「生成失败」。改为 `user_id=user_id`。
+2. **双查返程标题方向颠倒**：`planner.py` 飞机/高铁对比的返程标题写成「返程（北京→西安）」，未像单查分支那样翻转为「西安→北京」。
+
+### 9.3 覆盖率
+
+重点模块前后对比：
+
+| 模块 | 之前 | 现在 |
+|---|---|---|
+| planner.py | 7% | 92% |
+| database.py | 44% | 62% |
+| main.py | 34% | 48% |
+| 全仓 | 37% | 50% |
+
+**完整覆盖率报告**（`python -m pytest tests/ -q --cov=app --cov-report=term`，2026-10-22，147 passed / 4s）：
+
+| 模块 | 语句 | 未覆盖 | 覆盖率 | 说明 |
+|---|---|---|---|---|
+| transport.py | 29 | 0 | 100% | 距离估算/交通推荐（纯函数） |
+| price_check.py | 102 | 6 | 94% | 票价验价（飞猪打桩） |
+| planner.py | 259 | 22 | 92% | 编排层（飞猪整体打桩） |
+| auth.py | 22 | 2 | 91% | JWT 签发/校验 |
+| structured_planner.py | 582 | 155 | 73% | 校验器/分层修复/分片（LLM 打桩） |
+| database.py | 358 | 137 | 62% | 修订历史全链路已覆盖；OAuth 建号等外部分支未覆盖 |
+| main.py | 661 | 345 | 48% | 业务主路径已覆盖；OAuth 回调/封面图/推荐菜等外部 IO 端点未覆盖 |
+| config.py | 73 | 39 | 47% | 环境变量加载分支 |
+| chat.py | 66 | 54 | 18% | 抽取主体是 LLM 调用，端点层已 mock 验证 |
+| llm_client.py | 110 | 93 | 15% | 外部 IO：百炼 API 客户端，真实调用不可测 |
+| flyai_client.py | 141 | 125 | 11% | 外部 IO：飞猪 CLI 封装，真实调用不可测 |
+| alipay_oauth.py / amap_geocode.py / cover_generator.py / geocode.py / models.py | 509 | 509 | 0% | 外部 IO 边界，依赖真实第三方服务 |
+
+**用例分布**（10 文件 147 用例）：
+
+| 文件 | 用例 | 层级 |
+|---|---|---|
+| test_api.py | 28 | API 端点（认证/CRUD/验价/chat/generate/revise） |
+| test_validators.py | 28 | 校验器（返程/预算/时间/地理） |
+| test_plan_math.py | 16 | 预算算术/房间分配 |
+| test_repair.py | 16 | 分层修复（代码修复/LLM 补丁） |
+| test_planner.py | 13 | planner 编排（并行查询/组装/编造检测） |
+| test_day_slice.py | 12 | 按天分片生成与合并 |
+| test_price_check.py | 12 | 验价解析/对比/状态机 |
+| test_revisions.py | 12 | 修订历史存取/回滚（DB + API） |
+| test_transport.py | 10 | 距离/交通推荐 |
+
+测试原则：LLM 与飞猪一律 mock（打桩在模块属性上），数据库用 monkeypatch `DB_PATH` 指向临时库，全套 <5s、不触真实数据、不依赖网络。覆盖率低分仓集中在不可 mock 的外部 IO 边界（第三方 API 客户端/OAuth 回调），属预期；业务决策与校验逻辑均在 73%+。
+
+### 9.4 变更清单
+
+- `tests/test_api.py`（+16 用例）/ `tests/test_revisions.py`（新 12）/ `tests/test_planner.py`（新 13）
+- `app/main.py` / `app/planner.py`：修复上述 2 个 bug
+- `pyproject.toml`：pytest-cov 入 dev 组；`.gitignore`：coverage 产物
