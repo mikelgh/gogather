@@ -13,6 +13,9 @@ CITY_COORDS = {
     "成都": (30.5728, 104.0668),
     "九寨沟": (33.2667, 103.9167),
     "乐山": (29.5467, 103.7767),
+    "昆明": (25.0389, 102.7183),
+    "大理": (25.6065, 100.2676),
+    "丽江": (26.8552, 100.2259),
     "南京": (32.0603, 118.7969),
     "武汉": (30.5928, 114.3055),
     "西安": (34.3416, 108.9398),
@@ -73,6 +76,11 @@ POI_COORDS = {
         "北京站": (39.9027, 116.4272),
         "北京西站": (39.8944, 116.3250),
         "北京北站": (39.9472, 116.3589),
+        "北京首都国际机场": (40.0802, 116.6025),
+        "北京首都机场": (40.0802, 116.6025),
+        "首都国际机场": (40.0802, 116.6025),
+        "北京大兴国际机场": (39.5106, 116.4292),
+        "大兴国际机场": (39.5106, 116.4292),
     },
     "广州": {
         "广州塔": (23.1067, 113.3211),
@@ -142,6 +150,22 @@ POI_COORDS = {
         "重庆北站": (29.6067, 106.5467),
         "重庆站": (29.5467, 106.5667),
     },
+    "昆明": {
+        "昆明长水国际机场": (25.0996, 102.9358),
+        "昆明长水机场": (25.0996, 102.9358),
+        "长水机场": (25.0996, 102.9358),
+        "长水国际机场": (25.0996, 102.9358),
+        "昆明南站": (24.9570, 102.8236),
+    },
+    "大理": {
+        "大理凤仪机场": (25.6470, 100.3210),
+        "大理机场": (25.6470, 100.3210),
+    },
+    "丽江": {
+        "丽江三义机场": (26.6661, 100.2488),
+        "丽江三义国际机场": (26.6661, 100.2488),
+        "三义机场": (26.6661, 100.2488),
+    },
 }
 
 
@@ -170,8 +194,12 @@ def _detect_city_in_location(location: str, cities: list) -> str | None:
     return None
 
 
-def geocode(location: str, city: str) -> tuple[float, float] | None:
-    """把地点文本转成 (lat, lng)。未命中返回 None。"""
+def geocode(location: str, city: str, fallback_center: bool = True) -> tuple[float, float] | None:
+    """把地点文本转成 (lat, lng)。未命中返回 None。
+
+    fallback_center=False 时跳过城市中心兜底（供 geocode_timeline 分层：
+    精确 POI → 高德 API → 城市中心），避免粗略中心坐标抢先于精确结果。
+    """
     if not location:
         return None
 
@@ -196,9 +224,12 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
             if city_name in arr_full:
                 arr_city = city_name
                 break
-        # 在出发城市找机场/火车站
+        # 出发侧：优先按文本精确匹配 POI（如"成都东站→双流机场"应标成都东站），再退回机场/车站/中心
         if dep_city:
             dep_pois = POI_COORDS.get(dep_city, {})
+            for poi_key, coords in dep_pois.items():
+                if poi_key in dep_full:
+                    return coords
             # 优先找机场
             for poi_key in dep_pois:
                 if "机场" in poi_key:
@@ -214,6 +245,9 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
         # 如果出发城市不在 POI 列表中，尝试到达城市
         if arr_city:
             arr_pois = POI_COORDS.get(arr_city, {})
+            for poi_key, coords in arr_pois.items():
+                if poi_key in arr_full:
+                    return coords
             for poi_key in arr_pois:
                 if "机场" in poi_key:
                     return arr_pois[poi_key]
@@ -231,9 +265,9 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
             if poi_name in location:
                 return coords
         # 回退到该城市中心
-        if detected_city in CITY_COORDS:
+        if fallback_center and detected_city in CITY_COORDS:
             return CITY_COORDS[detected_city]
-    
+
     # 尝试所有城市的 POI（模糊匹配）
     for c in cities:
         city_pois = POI_COORDS.get(c, {})
@@ -242,9 +276,10 @@ def geocode(location: str, city: str) -> tuple[float, float] | None:
                 return coords
 
     # 回退到第一个城市的中心坐标
-    for c in cities:
-        if c in CITY_COORDS:
-            return CITY_COORDS[c]
+    if fallback_center:
+        for c in cities:
+            if c in CITY_COORDS:
+                return CITY_COORDS[c]
     return None
 
 
@@ -253,8 +288,9 @@ def geocode_timeline(timeline: list, city: str) -> list:
 
     坐标来源优先级：
     1. timeline 项自带的 lat/lng（飞猪坐标，LLM 透传 + 校验）
-    2. 硬编码 POI 表 / 文本匹配
+    2. 硬编码 POI 表 / 路线规则（不含城市中心兜底）
     3. 高德地理编码 API（需配置 AMAP_API_KEY）
+    4. 城市中心兜底（保证地图总能展示）
     """
     result = []
     for item in timeline:
@@ -263,10 +299,19 @@ def geocode_timeline(timeline: list, city: str) -> list:
             result.append(item_copy)
             continue
         loc = item.get("location", "") or item.get("title", "")
-        coords = geocode(loc, city)
+        # 硬编码精确匹配（POI 表 / 路线规则）
+        coords = geocode(loc, city, fallback_center=False)
         if not coords:
             from . import amap_geocode
-            coords = amap_geocode.geocode(loc, city.split("+")[0].strip() if city else "")
+            # 地址文本通常已含城市语境，高德可全文匹配；只有能明确检测到城市时才加约束，
+            # 多城市行程传首个城市会导致跨城市地点（如 city=昆明 查 丽江古城）编码失败
+            hint = _detect_city_in_location(loc, _extract_cities(city)) or ""
+            coords = amap_geocode.geocode(loc, hint)
+            if not coords and hint:
+                coords = amap_geocode.geocode(loc, "")
+        # 城市中心兜底（含路线出发/到达城市中心）
+        if not coords:
+            coords = geocode(loc, city)
         if coords:
             item_copy["lat"] = coords[0]
             item_copy["lng"] = coords[1]

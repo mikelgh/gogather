@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoGather 聚行 · 全屏地图</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    color: #1e293b;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .map-header {
+    height: 56px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 18px;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 17px;
+    font-weight: 700;
+    color: #4f46e5;
+    text-decoration: none;
+    flex-shrink: 0;
+  }
+  .brand img { width: 26px; height: 26px; }
+  .map-title {
+    font-size: 14px;
+    color: #475569;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .back-link:hover { background: #e0e7ff; }
+
+  .map-layout {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  #fullscreenMap { flex: 1; min-width: 0; }
+
+  .location-panel {
+    width: 340px;
+    flex-shrink: 0;
+    background: #fff;
+    border-left: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .panel-head {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    flex-shrink: 0;
+  }
+  .panel-head h2 { font-size: 15px; font-weight: 600; }
+  .panel-head .count { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+  #fullscreenLocationList { flex: 1; overflow-y: auto; }
+
+  .map-location-item { transition: background 0.12s; }
+  .map-location-item:hover { background: #f1f5f9; }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #94a3b8;
+    font-size: 14px;
+    padding: 30px;
+    text-align: center;
+  }
+
+  @media (max-width: 768px) {
+    .map-layout { flex-direction: column; }
+    #fullscreenMap { height: 45vh; flex: none; }
+    .location-panel { width: 100%; flex: 1; border-left: none; border-top: 1px solid #e2e8f0; }
+  }
+</style>
+</head>
+<body>
+  <header class="map-header">
+    <a class="brand" href="/">
+      <img src="/logo.svg" alt="logo">GoGather 聚行
+    </a>
+    <div class="map-title" id="mapTitle">加载中…</div>
+    <a class="back-link" id="backLink" href="/" style="display:none;">← 返回方案页</a>
+  </header>
+
+  <main class="map-layout">
+    <div id="fullscreenMap"></div>
+    <aside class="location-panel">
+      <div class="panel-head">
+        <h2>📍 地点列表</h2>
+        <div class="count" id="locCount"></div>
+      </div>
+      <div id="fullscreenLocationList"></div>
+      <div class="empty-state" id="emptyState" style="display:none;">
+        <div style="font-size:34px;">🗺️</div>
+        <div>暂无可标记的地点坐标</div>
+        <div style="font-size:12px;">生成方案后即可在地图上查看行程路线</div>
+      </div>
+    </aside>
+  </main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/map_component.js"></script>
+<script>
+(function () {
+  // URL 形如 /map/{share_code}；本地调试支持 ?code=xxx
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const code = pathParts[1] || new URLSearchParams(window.location.search).get('code');
+
+  async function init() {
+    if (!code) {
+      document.getElementById('mapTitle').textContent = '缺少分享码';
+      document.getElementById('emptyState').style.display = 'flex';
+      return;
+    }
+    document.getElementById('backLink').href = `/share/${code}`;
+    document.getElementById('backLink').style.display = 'inline-flex';
+    try {
+      const resp = await fetch(`/api/share/${code}/map`);
+      if (!resp.ok) throw new Error('加载失败');
+      const data = await resp.json();
+      document.getElementById('mapTitle').textContent = data.title || data.city || '出行方案地图';
+      const points = (data.timeline || []).filter(t => t.lat && t.lng);
+      if (points.length === 0) {
+        document.getElementById('emptyState').style.display = 'flex';
+        document.getElementById('locCount').textContent = '0 个地点';
+        return;
+      }
+      document.getElementById('locCount').textContent = `${points.length} 个地点 · 点击列表项在地图上定位`;
+      GoGatherMap.create(document.getElementById('fullscreenMap'), points, {
+        layout: 'side',
+        listEl: document.getElementById('fullscreenLocationList'),
+        showLocation: true,
+      });
+    } catch (err) {
+      console.error(err);
+      document.getElementById('mapTitle').textContent = '地图加载失败，请稍后重试';
+      document.getElementById('emptyState').style.display = 'flex';
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

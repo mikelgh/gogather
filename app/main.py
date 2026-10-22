@@ -167,6 +167,15 @@ def og_cover():
     )
 
 
+@app.get("/map_component.js")
+def map_component_js():
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "map_component.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 @app.get("/share/{code}/cover.png")
 def share_cover(code: str):
     """动态生成分享封面图。"""
@@ -260,6 +269,18 @@ def share_page(code: str):
         )
     
     return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/map/{code}")
+def fullscreen_map_page(code: str):
+    """全屏地图页：左侧地图，右侧地点列表。"""
+    plan = db.get_plan_by_share(code)
+    if not plan:
+        raise HTTPException(status_code=404, detail="分享码无效")
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "map.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/admin")
@@ -882,36 +903,38 @@ def api_share_recommend_restaurants(code: str, req: RestaurantRecommendRequest):
     return _recommend_restaurants(plan, req.item_index)
 
 
+def _map_payload(plan: dict) -> dict:
+    """方案地图数据：带坐标时间线 + 标题（供方案页/分享页/全屏地图页共用）。"""
+    from . import geocode as geocode_mod
+
+    timeline = plan.get("timeline", [])
+    params = plan.get("params") or {}
+    city = params.get("city", "")
+    origin = params.get("origin", "")
+    title = f"{origin} → {city}" if origin and city else (city or "出行方案")
+    return {
+        "city": city,
+        "title": title,
+        "timeline": geocode_mod.geocode_timeline(timeline, city),
+    }
+
+
 @app.get("/api/plan/{plan_id}/map")
 def api_plan_map(plan_id: str, user: dict = Depends(get_current_user)):
     """返回带地理坐标的时间线，用于地图渲染。"""
-    from . import geocode as geocode_mod
-
     plan = db.get_plan(plan_id, user_id=user["id"])
     if not plan:
         raise HTTPException(status_code=404, detail="方案不存在")
-    timeline = plan.get("timeline", [])
-    city = (plan.get("params") or {}).get("city", "")
-    return {
-        "city": city,
-        "timeline": geocode_mod.geocode_timeline(timeline, city),
-    }
+    return _map_payload(plan)
 
 
 @app.get("/api/share/{code}/map")
 def api_share_map(code: str):
     """分享页地图数据（无需登录）。"""
-    from . import geocode as geocode_mod
-
     plan = db.get_plan_by_share(code)
     if not plan:
         raise HTTPException(status_code=404, detail="分享码无效")
-    timeline = plan.get("timeline", [])
-    city = (plan.get("params") or {}).get("city", "")
-    return {
-        "city": city,
-        "timeline": geocode_mod.geocode_timeline(timeline, city),
-    }
+    return _map_payload(plan)
 
 
 @app.get("/api/plan/{plan_id}/reminders")
