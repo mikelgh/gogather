@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GoGather 管理后台</title>
+<title>GoGather 聚行 · 管理后台</title>
 <link rel="icon" type="image/svg+xml" href="/logo.svg">
 <link rel="alternate icon" href="/static/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
 <meta name="theme-color" content="#6366f1">
 <link rel="stylesheet" href="/static/brand.css">
+<script src="/static/copy.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -125,7 +126,7 @@
 <body>
 <div class="header">
   <div class="header-content">
-    <h1><img src="/logo.svg" alt="" style="width:26px;height:26px;border-radius:8px;vertical-align:-5px;margin-right:8px;">GoGather 管理后台</h1>
+    <h1 data-copy="brand.name" data-copy-fallback="GoGather 聚行 · 管理后台"><img src="/logo.svg" alt="" style="width:26px;height:26px;border-radius:8px;vertical-align:-5px;margin-right:8px;">GoGather 管理后台</h1>
     <div class="user-info">
       <img id="userAvatar" class="avatar" src="" alt="avatar" style="display:none">
       <span id="userName"></span>
@@ -283,11 +284,11 @@ async function apiGet(path) {
     headers: { 'Authorization': `Bearer ${token}` }
   });
   if (resp.status === 403) {
-    showError('无管理员权限：仅特定 GitHub 用户可访问管理后台');
-    throw new Error('Permission denied');
+    showError(t('auth.noPermission', '当前账号没有管理后台权限'));
+    throw new Error(t('auth.noPermission', '当前账号没有管理后台权限'));
   }
   if (!resp.ok) {
-    throw new Error(`API error: ${resp.status}`);
+    throw new Error(`请求失败（${resp.status}），请稍后重试`);
   }
   return resp.json();
 }
@@ -339,7 +340,7 @@ async function loadOverview() {
       });
     }
   } catch (e) {
-    showError('加载概览数据失败：' + e.message);
+    showError(t('auth.loadFailed', '概览数据加载失败，请稍后重试'));
   }
 }
 

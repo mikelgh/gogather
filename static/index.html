@@ -1390,6 +1390,14 @@
   line-height: 1.6;
 }
 
+.empty-state-hint {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 4px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
 /* ── Toast ─────────────────────────────────────────────── */
 .toast-container {
   position: fixed;
@@ -2119,34 +2127,34 @@
 <!-- Auth Modal -->
 <div class="auth-modal hidden" id="authModal">
   <div class="auth-card">
-    <h2>欢迎使用 GoGather</h2>
-    <p class="auth-subtitle">登录或注册，开始规划你的活动出行</p>
+    <h2 data-copy="auth.welcomeTitle" data-copy-fallback="欢迎使用 GoGather">欢迎使用 GoGather</h2>
+    <p class="auth-subtitle" data-copy="auth.welcomeSub" data-copy-fallback="登录或注册，开始规划你的活动出行">登录或注册，开始规划你的活动出行</p>
     <div class="auth-tabs">
-      <button class="auth-tab active" data-auth="login" onclick="switchAuthTab('login')">登录</button>
-      <button class="auth-tab" data-auth="register" onclick="switchAuthTab('register')">注册</button>
+      <button class="auth-tab active" data-auth="login" onclick="switchAuthTab('login')" data-copy="auth.tabLogin" data-copy-fallback="登录">登录</button>
+      <button class="auth-tab" data-auth="register" onclick="switchAuthTab('register')" data-copy="auth.tabRegister" data-copy-fallback="注册">注册</button>
     </div>
     <form class="auth-form" id="authForm" onsubmit="handleAuth(event)">
       <div class="auth-field">
-        <label for="authUsername">用户名</label>
-        <input type="text" id="authUsername" placeholder="输入用户名" required minlength="2" autocomplete="username">
+        <label for="authUsername" data-copy="auth.labelUsername" data-copy-fallback="用户名">用户名</label>
+        <input type="text" id="authUsername" placeholder="输入昵称" data-copy-ph="auth.placeholderUsername" required minlength="2" autocomplete="username">
       </div>
       <div class="auth-field">
-        <label for="authPassword">密码</label>
+        <label for="authPassword" data-copy="auth.labelPassword" data-copy-fallback="密码">密码</label>
         <input type="password" id="authPassword" placeholder="输入密码" required minlength="4" autocomplete="current-password">
       </div>
       <div class="auth-field hidden" id="authConfirmField">
-        <label for="authConfirmPassword">确认密码</label>
-        <input type="password" id="authConfirmPassword" placeholder="再次输入密码" autocomplete="new-password">
+        <label for="authConfirmPassword" data-copy="auth.labelConfirm" data-copy-fallback="确认密码">确认密码</label>
+        <input type="password" id="authConfirmPassword" placeholder="再次输入密码" data-copy-ph="auth.placeholderConfirm" autocomplete="new-password">
       </div>
       <div class="auth-error" id="authError"></div>
       <button type="submit" class="auth-submit" id="authSubmitBtn">登录</button>
     </form>
     <div class="auth-divider">
-      <span>或</span>
+      <span data-copy="auth.or" data-copy-fallback="或">或</span>
     </div>
     <a href="/api/auth/github" class="auth-github-btn">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-      使用 GitHub 登录
+      <span data-copy="auth.withGitHub" data-copy-fallback="使用 GitHub 登录">使用 GitHub 登录</span>
     </a>
     <!-- 淘宝登录暂不可用（平台已下架网站应用类型）
     <div class="auth-oauth-row">
@@ -2158,7 +2166,7 @@
     -->
     <a href="/api/auth/alipay" class="auth-alipay-btn">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21.422 14.753c-1.386-.468-2.962-1.053-4.656-1.717.476-.975.862-2.059 1.124-3.224h-3.49v-1.39h4.266V7.49h-4.266V5.203h-2.09s.024-.263.024-.585c0-.322-.024-.585-.024-.585H9.89v1.165H5.876v.927H9.89v1.363H6.39v.937h6.587c-.21.852-.51 1.644-.885 2.355-2.145-.765-4.455-1.395-6.39-1.395C3.06 9.765 1 11.385 1 13.59c0 2.205 2.06 3.675 4.702 3.675 2.205 0 4.14-.99 5.61-2.67.99.555 1.89 1.095 2.67 1.605L21.422 14.753zM5.702 15.585c-1.89 0-2.955-.9-2.955-2.025 0-1.125 1.065-1.935 2.52-1.935 1.455 0 3.15.465 5.04 1.305-1.26 1.665-2.835 2.655-4.605 2.655z"/></svg>
-      使用支付宝登录
+      <span data-copy="auth.withAlipay" data-copy-fallback="使用支付宝登录">使用支付宝登录</span>
     </a>
   </div>
 </div>
@@ -2166,15 +2174,15 @@
 <!-- 修改昵称 -->
 <div class="auth-modal hidden" id="nicknameModal" onclick="if(event.target === this) closeNicknameModal()">
   <div class="auth-card">
-    <h2>修改昵称</h2>
-    <p class="auth-subtitle">2-20 位中英文、数字、下划线、点或减号</p>
+    <h2 data-copy="auth.nicknameTitle" data-copy-fallback="修改昵称">修改昵称</h2>
+    <p class="auth-subtitle" data-copy="auth.nicknameSub" data-copy-fallback="2-20 位中英文、数字、下划线、点或减号">2-20 位中英文、数字、下划线、点或减号</p>
     <form class="auth-form" onsubmit="saveNickname(event)">
       <div class="auth-field">
         <label for="nicknameInput">新昵称</label>
         <input type="text" id="nicknameInput" maxlength="20" autocomplete="off">
       </div>
       <div class="auth-error" id="nicknameError"></div>
-      <button type="submit" class="auth-submit" id="nicknameSubmitBtn">保存</button>
+      <button type="submit" class="auth-submit" id="nicknameSubmitBtn" data-copy="auth.nicknameSave" data-copy-fallback="保存">保存</button>
     </form>
   </div>
 </div>
@@ -2188,8 +2196,8 @@
       <span class="brand-logo-cn">聚行</span>
     </a>
     <nav class="nav-tabs">
-      <button class="nav-tab active" data-view="chat" onclick="switchView('chat')">策划</button>
-      <button class="nav-tab" data-view="execution" onclick="switchView('execution')">实施</button>
+      <button class="nav-tab active" data-view="chat" onclick="switchView('chat')" data-copy="nav.planTab" data-copy-fallback="策划">策划</button>
+      <button class="nav-tab" data-view="execution" onclick="switchView('execution')" data-copy="nav.execTab" data-copy-fallback="实施">实施</button>
     </nav>
     <div class="user-menu-wrapper" id="userMenuWrapper" style="display:none;">
       <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()"></div>
@@ -2199,11 +2207,11 @@
         </div>
         <div class="user-dropdown-item" onclick="openNicknameModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          修改昵称
+          <span data-copy="auth.editNickname" data-copy-fallback="修改昵称">修改昵称</span>
         </div>
         <div class="user-dropdown-item danger" onclick="logout()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          退出登录
+          <span data-copy="auth.logout" data-copy-fallback="退出登录">退出登录</span>
         </div>
       </div>
     </div>
@@ -2222,7 +2230,7 @@
       </button>
     </div>
     <ul class="plan-list" id="planList">
-      <li class="plan-list-empty">暂无方案</li>
+      <li class="plan-list-empty" data-copy="empty.plans" data-copy-fallback="还没有方案">还没有方案</li>
     </ul>
   </aside>
   <button class="sidebar-toggle-btn" id="sidebarCollapseBtn" onclick="toggleSidebarCollapse()" title="折叠侧边栏">‹</button>
@@ -2422,7 +2430,7 @@
           </button>
         </div>
         <div class="revision-list" id="revisionList">
-          <div class="revision-empty">暂无修订记录</div>
+          <div class="revision-empty" data-copy="empty.revisions" data-copy-fallback="暂无修订记录">暂无修订记录</div>
         </div>
       </div>
     </div>
@@ -2460,7 +2468,8 @@
     <div class="plan-content" id="executionContent">
       <div class="empty-state">
         <div class="empty-state-icon">📋</div>
-        <div class="empty-state-text">还没有方案<br>请先在「策划」页面生成方案</div>
+        <div class="empty-state-text" data-copy="empty.exec" data-copy-fallback="还没有可选的方案">还没有可选的方案</div>
+        <div class="empty-state-hint" data-copy="empty.execHint" data-copy-fallback="先到「策划」里生成一份方案">先到「策划」里生成一份方案，再回来跟踪执行进度</div>
       </div>
     </div>
   </div>
@@ -2472,6 +2481,8 @@
 <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
 </button>
+
+<script src="/static/copy.js"></script>
 
 <script>
 // ── State ─────────────────────────────────────────────────
@@ -2616,7 +2627,7 @@ async function loadPlanList() {
     const titleEl = document.getElementById('sidebarTitle');
     if (titleEl) titleEl.textContent = `我的方案 (${plans.length})`;
     if (plans.length === 0) {
-      list.innerHTML = '<li class="plan-list-empty">暂无方案<br><small>输入需求开始规划</small></li>';
+      list.innerHTML = `<li class="plan-list-empty">${t('empty.plans', '还没有方案')}<small>${t('empty.plansHint', '在下方描述你要办的活动，AI 会给出完整出行方案')}</small></li>`;
       return;
     }
     list.innerHTML = plans.map((p, i) => {
@@ -2661,10 +2672,10 @@ async function deletePlan(event, planId) {
   try {
     const resp = await authFetch(`/api/plan/${planId}`, { method: 'DELETE' });
     if (!resp.ok) {
-      showToast('删除失败', 'error');
+      showToast(t('plan.removeFailed', '删除失败，请稍后重试'), 'error');
       return;
     }
-    showToast('方案已删除', 'success');
+    showToast(t('plan.removed', '方案已删除'), 'success');
     if (state.planId === planId) {
       state.planId = null;
       state.plan = null;
@@ -2875,7 +2886,7 @@ async function saveNickname(e) {
     localStorage.setItem('juxing_user', JSON.stringify(state.user));
     showUserMenu();
     closeNicknameModal();
-    showToast('昵称已更新', 'success');
+    showToast(t('auth.nicknameDone', '昵称已更新'), 'success');
   } catch (err) {
     errorEl.textContent = err.message;
     submitBtn.disabled = false;
@@ -2906,7 +2917,7 @@ async function authFetch(url, options = {}) {
   const resp = await fetch(url, options);
   if (resp.status === 401) {
     logout();
-    showToast('登录已过期，请重新登录', 'error');
+    showToast(t('toast.loginExpired', '登录已过期，请重新登录'), 'error');
     throw new Error('未授权');
   }
   return resp;
@@ -2965,7 +2976,7 @@ async function renderReminders() {
     const data = await resp.json();
     const reminders = data.reminders || [];
     if (reminders.length === 0) {
-      container.innerHTML = '<div class="empty-state">暂无提醒</div>';
+      container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-text">${t('empty.reminder', '暂无提醒')}</div><div class="empty-state-hint">${t('empty.reminderHint')}</div></div>`;
       return;
     }
     container.innerHTML = `
@@ -3088,7 +3099,7 @@ function addMessage(role, content, params = null) {
   scrollChatToBottom();
 }
 
-function showTypingIndicator(message = '正在思考...') {
+function showTypingIndicator(message = t('loading.thinking', '正在思考…')) {
   const messages = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'typing-indicator';
@@ -3193,11 +3204,11 @@ function showOutlineCard(outline) {
 async function confirmOutline() {
   if (!state.pendingOutline || state.isSending) return;
   const btn = document.querySelector('.outline-confirm-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '正在生成完整方案…'; }
+  if (btn) { btn.disabled = true; btn.textContent = t('loading.generating', '正在生成方案…'); }
   state.isSending = true;
   document.getElementById('sendBtn').disabled = true;
-  showTypingIndicator('正在查询飞猪实时价格...');
-  const progressMessages = ['正在搜索酒店...', '正在查找景点和活动...', '正在生成方案...', '正在计算预算...'];
+  showTypingIndicator(t('loading.queryingPrice', '正在查询飞猪实时价格…'));
+  const progressMessages = [t('loading.searchingHotel'), t('loading.searchingSpot'), t('loading.generating'), t('loading.computingBudget')];
   let progressIdx = 0;
   const progressTimer = setInterval(() => {
     if (progressIdx < progressMessages.length) {
@@ -3237,7 +3248,7 @@ async function confirmOutline() {
     clearInterval(progressTimer);
     hideTypingIndicator();
     addMessage('assistant', '出错了，请重试：' + err.message);
-    showToast('请求失败', 'error');
+    showToast(t('toast.requestFailed', '请求失败，请检查网络后重试'), 'error');
   } finally {
     state.isSending = false;
     document.getElementById('sendBtn').disabled = false;
@@ -3292,7 +3303,7 @@ async function sendMessage() {
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
   if (!message) {
-    showToast('请输入内容', 'error');
+    showToast(t('toast.needInput', '请先描述一下这次活动'), 'error');
     input.focus();
     return;
   }
@@ -3320,15 +3331,15 @@ async function sendMessage() {
   sendBtn.disabled = true;
   
   state.conversation.push({ role: 'user', content: message });
-  showTypingIndicator('正在分析需求...');
+  showTypingIndicator(t('loading.analyzing', '正在分析需求…'));
   
   // 进度提示定时器
   const progressMessages = [
-    '正在查询飞猪交通信息...',
-    '正在搜索酒店...',
-    '正在查找景点和活动...',
-    '正在生成方案...',
-    '正在计算预算...',
+    t('loading.queryingFlight'),
+    t('loading.searchingHotel'),
+    t('loading.searchingSpot'),
+    t('loading.generating'),
+    t('loading.computingBudget'),
   ];
   let progressIdx = 0;
   const progressTimer = setInterval(() => {
@@ -3428,7 +3439,7 @@ function renderTimeline(structured) {
   const timeline = structured.timeline || [];
   
   if (timeline.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"></div><div class="empty-state-text">暂无时间线数据</div></div>';
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🗺️</div><div class="empty-state-text">${t('empty.timeline', '暂无时间线')}</div><div class="empty-state-hint">${t('empty.timelineHint')}</div></div>`;
     return;
   }
   
@@ -3511,7 +3522,7 @@ function renderRestaurantRec(item, index) {
 
 async function fetchRestaurantRec(index, btn) {
   btn.disabled = true;
-  btn.textContent = '正在查询飞猪餐厅数据...';
+  btn.textContent = t('loading.queryingRestaurant', '正在查询飞猪餐厅数据…');
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/recommend_restaurants`, {
       method: 'POST',
@@ -3569,7 +3580,7 @@ function renderTasks(structured) {
   const actionItems = structured.action_items || [];
   
   if (actionItems.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">暂无待办事项</div></div>';
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">${t('empty.todo', '暂无待办事项')}</div><div class="empty-state-hint">${t('empty.todoHint')}</div></div>`;
     return;
   }
   
@@ -3725,8 +3736,8 @@ async function regeneratePlan() {
   state.isSending = true;
   const btn = document.getElementById('regenBtn');
   btn.disabled = true;
-  btn.textContent = '正在重新生成…';
-  showToast('正在按原条件重新生成方案…', 'default');
+  btn.textContent = t('plan.regenerating', '正在重新生成…');
+  showToast(t('plan.regenerateToast', '正在按原条件重新生成方案…'), 'default');
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/regenerate`, { method: 'POST' });
     const data = await resp.json();
@@ -3759,19 +3770,19 @@ async function sharePlan() {
       document.getElementById('shareLink').href = shareUrl;
       document.getElementById('shareLink').textContent = shareUrl;
       document.getElementById('shareResult').style.display = 'block';
-      showToast('分享链接已生成', 'success');
+      showToast(t('plan.shareGenerated', '分享链接已生成'), 'success');
     }
   } catch (err) {
-    showToast('分享失败', 'error');
+    showToast(t('plan.shareFailed', '分享失败，请稍后重试'), 'error');
   }
 }
 
 function copyShareLink() {
   const link = document.getElementById('shareLink').href;
   navigator.clipboard.writeText(link).then(() => {
-    showToast('已复制到剪贴板', 'success');
+    showToast(t('plan.copied', '已复制到剪贴板'), 'success');
   }).catch(() => {
-    showToast('复制失败，请手动复制', 'error');
+    showToast(t('plan.copyFailed', '复制失败，请手动复制地址栏链接'), 'error');
   });
 }
 
@@ -3830,7 +3841,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function showRevisionHistory() {
   if (!state.planId) {
-    showToast('请先选择方案', 'error');
+    showToast(t('plan.selectFirst', '请先在左侧选择一个方案'), 'error');
     return;
   }
   
@@ -3838,7 +3849,7 @@ async function showRevisionHistory() {
   const list = document.getElementById('revisionList');
   
   modal.classList.remove('hidden');
-  list.innerHTML = '<div class="revision-empty">加载中...</div>';
+  list.innerHTML = `<div class="revision-empty">${t('loading.revisions', '加载中…')}</div>`;
   
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/revisions`);
@@ -3847,7 +3858,7 @@ async function showRevisionHistory() {
     const revisions = await resp.json();
     
     if (revisions.length === 0) {
-      list.innerHTML = '<div class="revision-empty">暂无修订记录</div>';
+      list.innerHTML = `<div class="revision-empty">${t('empty.revisions', '暂无修订记录')}</div>`;
       return;
     }
     

@@ -11,6 +11,7 @@
 <meta name="theme-color" content="#6366f1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="/static/brand.css">
+<script src="/static/copy.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -127,7 +128,7 @@
       <div id="fullscreenLocationList"></div>
       <div class="empty-state" id="emptyState" style="display:none;">
         <div style="font-size:34px;">🗺️</div>
-        <div>暂无可标记的地点坐标</div>
+        <div data-copy="empty.coords" data-copy-fallback="暂无可标记的地点坐标">暂无可标记的地点坐标</div>
         <div style="font-size:12px;">生成方案后即可在地图上查看行程路线</div>
       </div>
     </aside>
@@ -143,7 +144,7 @@
 
   async function init() {
     if (!code) {
-      document.getElementById('mapTitle').textContent = '缺少分享码';
+      document.getElementById('mapTitle').textContent = t('share.missingCode', '缺少分享码');
       document.getElementById('emptyState').style.display = 'flex';
       return;
     }
@@ -177,7 +178,7 @@
       });
     } catch (err) {
       console.error(err);
-      document.getElementById('mapTitle').textContent = '地图加载失败，请稍后重试';
+      document.getElementById('mapTitle').textContent = t('share.mapFailed', '地图加载失败，请稍后重试');
       document.getElementById('emptyState').style.display = 'flex';
     }
   }

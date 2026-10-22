@@ -511,33 +511,35 @@
       <span class="brand-logo-word">GoGather</span>
       <span class="brand-logo-cn">聚行</span>
     </a>
-    <span class="share-badge">只读分享</span>
+    <span class="share-badge" data-copy="share.readonly" data-copy-fallback="只读分享">只读分享</span>
   </div>
 </header>
 
 <main class="container" id="app">
   <div class="loading" id="loading">
     <div class="loading-spinner"></div>
-    <div>加载方案中...</div>
+    <div data-copy="share.loading" data-copy-fallback="加载方案中…">加载方案中…</div>
   </div>
 </main>
 
+<script src="/static/copy.js"></script>
 <script>
 const code = window.location.pathname.split('/').pop();
 
 async function loadSharedPlan() {
   try {
     const resp = await fetch(`/api/share/${code}`);
-    if (!resp.ok) throw new Error('Not found');
+    if (!resp.ok) throw new Error(t('error.shareInvalid', '分享链接无效或已过期'));
     const plan = await resp.json();
     renderPlan(plan);
   } catch (err) {
     document.getElementById('app').innerHTML = `
       <div class="error-state">
-        <h2>方案不存在</h2>
-        <p>分享码无效或已过期</p>
+        <h2 data-copy="share.notFoundTitle" data-copy-fallback="方案不存在">方案不存在</h2>
+        <p data-copy="error.shareInvalid" data-copy-fallback="分享链接无效或已过期">分享链接无效或已过期</p>
       </div>
     `;
+    hydrateCopy(document.getElementById('app'));
   }
 }
 
@@ -759,13 +761,14 @@ function renderPlan(plan) {
     </div>
     <div class="cta-section">
       <h3>也想创建你的出行方案？</h3>
-      <p>一句话告诉 GoGather 你的活动需求，AI 帮你安排一切</p>
-      <a href="/" class="cta-btn">立即体验 GoGather</a>
+      <p data-copy="share.ctaSub" data-copy-fallback="一句话说清你的活动，AI 帮你安排一切">一句话说清你的活动，AI 帮你安排一切</p>
+      <a href="/" class="cta-btn" data-copy="share.ctaBtn" data-copy-fallback="立即开始规划">立即开始规划</a>
     </div>
-    <div class="footer">由 GoGather（聚行）生成 · 数据来源飞猪</div>
+    <div class="footer" data-copy="share.footer" data-copy-fallback="由 GoGather 聚行生成 · 出行数据来自飞猪">由 GoGather 聚行生成 · 出行数据来自飞猪</div>
   `;
 
   document.getElementById('app').innerHTML = html;
+  hydrateCopy(document.getElementById('app'));
   // 延迟渲染地图和提醒，确保 DOM 已更新
   setTimeout(() => { renderShareMap(); renderShareReminders(); }, 100);
 }
