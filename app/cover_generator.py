@@ -11,6 +11,9 @@ from PIL import Image, ImageDraw, ImageFont
 COVER_WIDTH = 1200
 COVER_HEIGHT = 960
 
+# AI 背景/成品封面缓存目录：放 /tmp 会在重启后丢失，导致所有封面回落渐变底
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "covers")
+
 # 字体路径（优先使用系统中文字体）
 FONT_PATHS = [
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
@@ -31,6 +34,23 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
             except Exception:
                 continue
     return ImageFont.load_default()
+
+
+def _fit_font(draw: ImageDraw.ImageDraw, text: str, base_size: int, max_ratio: float = 0.76, min_size: int = 36) -> ImageFont.FreeTypeFont:
+    """按文字宽度自适应字号：长标题自动缩小，保证两侧留白不被裁切。
+
+    封面在窄屏（分享页/手机）按高度缩放显示时左右会被 object-fit: cover 裁掉，
+    文字控制在画布宽度的 max_ratio 以内，任何端都能完整显示。
+    """
+    max_width = int(COVER_WIDTH * max_ratio)
+    size = base_size
+    while size > min_size:
+        font = get_font(size)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            return font
+        size -= 4
+    return get_font(min_size)
 
 
 def generate_cover(
@@ -77,11 +97,9 @@ def generate_cover(
             fill=color,
         )
     
-    # 绘制标题文字
-    title_font = get_font(72)
+    # 绘制标题文字（title_font 在下方按文字长度自适应）
     subtitle_font = get_font(42)
-    info_font = get_font(36)
-    
+
     # 标题：城市 + 出行方案
     if origin and city:
         title = f"{origin} → {city}"
@@ -92,7 +110,8 @@ def generate_cover(
     
     title_text = f"{title} 出行方案"
     
-    # 计算标题位置（居中）
+    # 计算标题位置（居中）；长标题自动缩字号，避免窄屏显示时被裁切
+    title_font = _fit_font(draw, title_text, 72)
     title_bbox = draw.textbbox((0, 0), title_text, font=title_font)
     title_width = title_bbox[2] - title_bbox[0]
     title_x = (COVER_WIDTH - title_width) // 2
@@ -123,6 +142,7 @@ def generate_cover(
     
     if info_parts:
         subtitle = " · ".join(info_parts)
+        subtitle_font = _fit_font(draw, subtitle, 42, max_ratio=0.8)
         subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
         subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
         subtitle_x = (COVER_WIDTH - subtitle_width) // 2
@@ -163,16 +183,16 @@ def generate_cover_cached(
     group_size: str = "",
     summary: str = "",
     origin: str = "",
-    cache_dir: str = "/tmp/gogather_covers",
+    cache_dir: str = CACHE_DIR,
 ) -> str:
     """生成封面图并缓存到文件，返回文件路径。"""
     # 创建缓存目录
     os.makedirs(cache_dir, exist_ok=True)
     
-    # 生成缓存键
+    # 生成缓存键（v2：标题自适应字号，防止窄屏裁切）
     cache_key = f"{city}_{date_range}_{group_size}_{origin}"
     cache_hash = hashlib.md5(cache_key.encode()).hexdigest()[:12]
-    cache_path = os.path.join(cache_dir, f"cover_{cache_hash}.png")
+    cache_path = os.path.join(cache_dir, f"cover_v2_{cache_hash}.png")
     
     # 如果缓存存在，直接返回
     if os.path.exists(cache_path):
@@ -215,7 +235,7 @@ def extract_primary_city(city: str) -> str:
     return city.strip()
 
 
-def generate_ai_background(city: str, cache_dir: str = "/tmp/gogather_covers") -> str:
+def generate_ai_background(city: str, cache_dir: str = CACHE_DIR) -> str:
     """使用 ImageGen 为城市生成 AI 背景图，返回文件路径。"""
     os.makedirs(cache_dir, exist_ok=True)
     
@@ -298,11 +318,9 @@ def _generate_cover_with_background(
     img = Image.alpha_composite(bg, overlay)
     draw = ImageDraw.Draw(img)
     
-    # 绘制文字
-    title_font = get_font(72)
-    subtitle_font = get_font(42)
+    # 绘制文字（title_font 按文字长度自适应，防止窄屏裁切）
     brand_font = get_font(32)
-    
+
     # 标题
     if origin and city:
         title = f"{origin} → {city}"
@@ -310,9 +328,10 @@ def _generate_cover_with_background(
         title = city
     else:
         title = "出行方案"
-    
+
     title_text = f"{title} 出行方案"
-    
+
+    title_font = _fit_font(draw, title_text, 72)
     title_bbox = draw.textbbox((0, 0), title_text, font=title_font)
     title_width = title_bbox[2] - title_bbox[0]
     title_x = (COVER_WIDTH - title_width) // 2
@@ -341,6 +360,7 @@ def _generate_cover_with_background(
     
     if info_parts:
         subtitle = " · ".join(info_parts)
+        subtitle_font = _fit_font(draw, subtitle, 42, max_ratio=0.8)
         subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
         subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
         subtitle_x = (COVER_WIDTH - subtitle_width) // 2

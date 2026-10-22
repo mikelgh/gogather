@@ -89,6 +89,7 @@ class ReviseRequest(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    captcha_verify_param: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -182,6 +183,15 @@ def index():
     return FileResponse(
         os.path.join(BASE_DIR, "static", "index.html"),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "favicon.ico"),
+        media_type="image/x-icon",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
@@ -346,8 +356,33 @@ def api_health():
 
 # ── 认证 ──────────────────────────────────────────────────
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+@app.get("/api/public-config")
+def api_public_config():
+    """前端公开配置（是否启用验证码及场景 ID，均非敏感信息）。"""
+    from . import captcha as captcha_mod
+
+    return {
+        "captcha_enabled": captcha_mod.captcha_enabled(),
+        "captcha_scene_id": config.get_env("ALIYUN_CAPTCHA_SCENE_ID"),
+        "captcha_prefix": config.get_env("ALIYUN_CAPTCHA_PREFIX"),
+    }
+
+
 @app.post("/api/register")
-def api_register(req: RegisterRequest):
+def api_register(req: RegisterRequest, request: Request):
+    from . import captcha as captcha_mod
+    from . import ratelimit
+
+    ip = _client_ip(request)
+    if not ratelimit.hit(f"register:{ip}", ratelimit.REGISTER_LIMIT, ratelimit.REGISTER_WINDOW_S):
+        raise HTTPException(status_code=429, detail="注册过于频繁，请一小时后再试")
+    if captcha_mod.captcha_enabled() and not captcha_mod.verify_captcha(req.captcha_verify_param):
+        raise HTTPException(status_code=403, detail="人机验证未通过，请重试")
+
     if len(req.username) < 2:
         raise HTTPException(status_code=400, detail="用户名至少2个字符")
     if len(req.password) < 4:
@@ -367,7 +402,12 @@ def api_register(req: RegisterRequest):
 
 
 @app.post("/api/login")
-def api_login(req: LoginRequest):
+def api_login(req: LoginRequest, request: Request):
+    from . import ratelimit
+
+    ip = _client_ip(request)
+    if not ratelimit.hit(f"login:{ip}", ratelimit.LOGIN_LIMIT, ratelimit.LOGIN_WINDOW_S):
+        raise HTTPException(status_code=429, detail="尝试过于频繁，请15分钟后再试")
     user = db.get_user_by_username(req.username)
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -765,7 +805,10 @@ def _build_plan_ready(extracted: dict, original_message: str, conversation: list
         "data_captured_at": plan_result.get("data_captured_at", now),
     }
     db.save_plan(plan_dict)
-    db.generate_share_code(plan_id, user_id=user_id)
+    share_code = db.generate_share_code(plan_id, user_id=user_id)
+    # plan_ready 立即带出分享码，前端可直接渲染 AI 封面（否则首次展示只有占位图）
+    if share_code:
+        plan_result["share_code"] = share_code
     db.save_conversation(user_id, "assistant", "方案已生成")
     return {
         "type": "plan_ready",
@@ -927,6 +970,15 @@ def api_revise_plan(plan_id: str, req: ReviseRequest, user: dict = Depends(get_c
     revised = structured_planner.revise_plan(params, current_structured, req.message, user_id=user["id"], plan_id=plan_id)
     if not revised:
         raise HTTPException(status_code=500, detail="修改失败，请重试")
+
+    # 修改前保存当前版本快照（与回滚端点的"回滚前快照"同一约定，修订历史/回滚依赖此记录）
+    revision_count = len(db.get_plan_revisions(plan_id))
+    db.save_plan_revision(
+        plan_id,
+        revision_count + 1,
+        f"修改前快照（{req.message}）",
+        plan,
+    )
 
     now = datetime.now().isoformat()
     plan["summary"] = revised.get("summary", plan.get("summary", ""))

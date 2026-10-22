@@ -426,6 +426,27 @@ class TestReviseEndpoint:
         assert args["params"]["city"] == "成都"
         assert args["current"]["timeline"] == plan["timeline"]
 
+    def test_revise_saves_before_snapshot(self, api_client, auth_headers, temp_db, mock_llm_chain):
+        me = api_client.get("/api/me", headers=auth_headers).json()
+        plan = _make_plan_payload(me["id"])
+        temp_db.save_plan(plan)
+        mock_llm_chain["revise_result"] = {
+            "summary": "修改后摘要",
+            "action_items": plan["action_items"],
+            "timeline": plan["timeline"],
+            "budget": plan["budget"],
+            "room_allocation": [],
+            "budget_per_person": plan["budget_per_person"],
+        }
+        r = api_client.post(f"/api/plan/{plan['id']}/revise", headers=auth_headers,
+                            json={"message": "换家酒店"})
+        assert r.status_code == 200
+        revs = api_client.get(f"/api/plan/{plan['id']}/revisions", headers=auth_headers).json()
+        assert len(revs) == 1
+        assert revs[0]["revision_number"] == 1
+        assert "换家酒店" in revs[0]["message"]
+        assert revs[0]["summary"] == plan["summary"]
+
     def test_revise_returns_500_when_llm_fails(self, api_client, auth_headers, temp_db, mock_llm_chain):
         me = api_client.get("/api/me", headers=auth_headers).json()
         plan = _make_plan_payload(me["id"])

@@ -18,6 +18,24 @@ def temp_db(tmp_path, monkeypatch):
     return database
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter(monkeypatch):
+    """每个测试前清空 IP 限频记录，并隔离服务器 .env 里的真实验证码配置。"""
+    from app import ratelimit
+
+    for key in (
+        "ALIYUN_CAPTCHA_SCENE_ID",
+        "ALIYUN_CAPTCHA_PREFIX",
+        "ALIYUN_ACCESS_KEY_ID",
+        "ALIYUN_ACCESS_KEY_SECRET",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    ratelimit.reset()
+    yield
+    ratelimit.reset()
+
+
 @pytest.fixture()
 def api_client(temp_db):
     """FastAPI TestClient（依赖 temp_db 先行）。"""

@@ -2142,6 +2142,8 @@
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 640px) {
   .header { padding: 10px 16px; }
+  /* 封面图为 5:4，窄屏按同比例显示，避免 object-fit 左右裁掉标题文字 */
+  #planCoverContainer { height: auto !important; aspect-ratio: 5 / 4; }
   /* 窄屏优先保证导航不折行：徽标与指南入口让位给主导航（新建方案保留，只留图标） */
   .brand-logo-cn { display: none; }
   .nav-tab { white-space: nowrap; padding: 7px 12px; }
@@ -2387,6 +2389,10 @@
       <div class="auth-error" id="authError"></div>
       <button type="submit" class="auth-submit" id="authSubmitBtn">登录</button>
     </form>
+    <!-- 阿里云验证码 2.0 弹层容器与隐藏触发按钮（仅注册模式启用时使用）；
+         popup 弹层渲染在该容器内，容器必须有布局尺寸，不能隐藏或置零 -->
+    <div id="captcha-element"></div>
+    <button type="button" id="captchaTrigger" style="position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none;" aria-hidden="true" tabindex="-1"></button>
     <div class="auth-divider">
       <span data-copy="auth.or" data-copy-fallback="或">或</span>
     </div>
@@ -2653,6 +2659,10 @@
       <div class="revision-area-title">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         修改方案
+        <button class="revision-history-btn" onclick="showRevisionHistory()" title="修订历史" style="margin-left: auto;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          修订历史
+        </button>
       </div>
       <div class="revision-input-wrapper">
         <textarea class="revision-input" id="revisionInput" placeholder="例如：换个便宜点的酒店、加一个团建活动、预算降到人均800..." rows="1" oninput="autoResize(this)"></textarea>
@@ -2668,20 +2678,8 @@
         <button class="revision-quick-tag" onclick="quickInput('增加自由活动时间')">增加自由时间</button>
       </div>
     </div>
-  </div>
 
-  <!-- Execution View -->
-  <div class="execution-view" id="executionView">
-    <div class="execution-header">
-      <h2>实施跟踪</h2>
-
-    <!-- Revision History Button -->
-    <button class="revision-history-btn" onclick="showRevisionHistory()" title="修订历史">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      修订历史
-    </button>
-
-    <!-- Revision History Modal -->
+    <!-- Revision History Modal（fixed 覆盖层，放在方案视图容器内即可从修改区直接打开） -->
     <div class="revision-modal hidden" id="revisionModal">
       <div class="revision-modal-content">
         <div class="revision-modal-header">
@@ -2695,6 +2693,12 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Execution View -->
+  <div class="execution-view" id="executionView">
+    <div class="execution-header">
+      <h2>实施跟踪</h2>
       <button class="back-btn" onclick="switchView('chat')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         返回方案
@@ -2746,6 +2750,7 @@
 
 <script src="/static/copy.js"></script>
 <script src="/static/tour.js"></script>
+<script src="https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js"></script>
 
 <script>
 // ── State ─────────────────────────────────────────────────
@@ -2763,9 +2768,18 @@ const state = {
   budgetTier: '舒适型',
   transportMode: 'auto',
   preferences: [],
+  captchaConfig: null,
 };
 
 // ── Auth ──────────────────────────────────────────────────
+async function loadPublicConfig() {
+  try {
+    const resp = await fetch('/api/public-config');
+    if (resp.ok) state.captchaConfig = await resp.json();
+  } catch (e) { /* 拉取失败按未启用验证码处理 */ }
+}
+loadPublicConfig();
+
 async function initAuth() {
   const urlParams = new URLSearchParams(window.location.search);
   const urlToken = urlParams.get('token');
@@ -3039,46 +3053,133 @@ async function handleAuth(e) {
   const confirmPassword = document.getElementById('authConfirmPassword').value;
   const errorEl = document.getElementById('authError');
   const submitBtn = document.getElementById('authSubmitBtn');
-  
+
   errorEl.textContent = '';
-  
+
   if (state.authMode === 'register' && password !== confirmPassword) {
     errorEl.textContent = '两次输入的密码不一致';
     return;
   }
-  
+
+  // 注册 + 服务端已启用验证码 → 先过人机验证，验证成功后再提交注册
+  if (state.authMode === 'register' && state.captchaConfig?.captcha_enabled) {
+    errorEl.textContent = '';
+    startRegisterCaptcha(username, password);
+    return;
+  }
+
+  await doAuthSubmit(username, password, '');
+}
+
+async function doAuthSubmit(username, password, captchaVerifyParam) {
+  const errorEl = document.getElementById('authError');
+  const submitBtn = document.getElementById('authSubmitBtn');
   submitBtn.disabled = true;
   submitBtn.textContent = state.authMode === 'login' ? '登录中...' : '注册中...';
-  
+
   try {
     const endpoint = state.authMode === 'login' ? '/api/login' : '/api/register';
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, captcha_verify_param: captchaVerifyParam || '' }),
     });
-    
+
     const data = await resp.json();
     if (!resp.ok) {
       throw new Error(data.detail || '操作失败');
     }
-    
+
     state.token = data.token;
     state.user = data.user;
     localStorage.setItem('juxing_token', data.token);
     localStorage.setItem('juxing_user', JSON.stringify(data.user));
-    
+
     document.getElementById('authModal').classList.add('hidden');
     showUserMenu();
     showToast(state.authMode === 'login' ? '登录成功' : '注册成功', 'success');
-    await loadConversations();
-    await restorePlan();
-    await loadPlanList();
+    // 会话/方案列表加载与新手引导不阻塞返回：验证码回调若等待过久，
+    // SDK 会复位勾选框并保留弹窗，用户再点会触发第二次验证（重复会话会被风控拒绝）
+    (async () => {
+      try {
+        await loadConversations();
+        await restorePlan();
+        await loadPlanList();
+        if (!window.tourCompleted() && state.planId === null) {
+          setTimeout(() => window.startTour(), 600);
+        }
+      } catch (e) { console.warn('登录后初始化失败', e); }
+    })();
+    return true;
   } catch (err) {
     errorEl.textContent = err.message;
+    return false;
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = state.authMode === 'login' ? '登录' : '注册';
+  }
+}
+
+// 触发阿里云验证码弹层；验证通过后携带 captchaVerifyParam 走正常注册。
+// 待提交凭据放模块级变量：复用实例时提交的始终是用户当前填写的值
+window._captchaPendingCreds = null;
+
+function startRegisterCaptcha(username, password) {
+  const errorEl = document.getElementById('authError');
+  if (!window.initAliyunCaptcha) {
+    errorEl.textContent = '人机验证组件加载失败，请刷新页面重试';
+    return;
+  }
+  if (!state.captchaConfig.captcha_prefix) {
+    errorEl.textContent = '验证码缺少身份标（prefix），请在 .env 配置 ALIYUN_CAPTCHA_PREFIX';
+    return;
+  }
+  window._captchaPendingCreds = { username, password };
+  // 已有实例直接复用（每次触发会生成新票据），重复 init 会叠开弹层
+  if (window._captchaInstance) {
+    document.getElementById('captchaTrigger').click();
+    return;
+  }
+  if (window._captchaIniting) return;
+  window._captchaIniting = true;
+  setTimeout(() => { window._captchaIniting = false; }, 5000);
+  try {
+    window.initAliyunCaptcha({
+      SceneId: state.captchaConfig.captcha_scene_id,
+      prefix: state.captchaConfig.captcha_prefix,
+      mode: 'popup',
+      element: '#captcha-element',
+      button: '#captchaTrigger',
+      language: 'cn',
+      region: 'cn',
+      captchaVerifyCallback: async (captchaVerifyParam) => {
+        const creds = window._captchaPendingCreds || { username: '', password: '' };
+        const ok = await doAuthSubmit(creds.username, creds.password, captchaVerifyParam);
+        window._captchaIniting = false;
+        if (ok) {
+          // 兜底：SDK 偶发在成功后重弹弹层，多点几次它自带的关闭按钮压掉闪现
+          [300, 800, 1500].forEach((ms) =>
+            setTimeout(() => {
+              const pop = document.getElementById('aliyunCaptcha-window-popup');
+              const btn = document.getElementById('aliyunCaptcha-btn-close');
+              if (pop && pop.offsetWidth && btn) btn.click();
+            }, ms)
+          );
+        }
+        return { captchaResult: ok, bizResult: true };
+      },
+      onBizResultCallback: () => {},
+      getInstance: (instance) => {
+        window._captchaIniting = false;
+        window._captchaInstance = instance;
+        // 实例就绪后才算绑定完成，此时模拟点击触发按钮；
+        // 无痕验证由此静默完成风控评估，滑块/拼图则弹出挑战层
+        document.getElementById('captchaTrigger').click();
+      },
+    });
+  } catch (err) {
+    window._captchaIniting = false;
+    errorEl.textContent = '人机验证初始化失败，请刷新页面重试';
   }
 }
 
@@ -3491,7 +3592,7 @@ async function confirmOutline() {
     const data = await resp.json();
     if (data.type === 'plan_ready') {
       state.pendingOutline = null;
-      state.plan = data.plan;
+      state.plan = { ...data.plan, id: data.plan_id };
       state.structured = data.structured || {};
       state.planId = data.plan_id;
       state.extractedParams = data.extracted_params;
@@ -3638,7 +3739,7 @@ async function sendMessage() {
         selectTransportMode(data.transport_suggested);
       }
     } else if (data.type === 'plan_ready') {
-      state.plan = data.plan;
+      state.plan = { ...data.plan, id: data.plan_id };
       state.structured = data.structured || {};
       state.planId = data.plan_id;
       state.extractedParams = data.extracted_params;
@@ -3700,7 +3801,7 @@ function showPlan(plan, planId, structured = {}) {
   const coverContainer = document.getElementById('planCoverContainer');
   if (coverContainer) {
     coverContainer.innerHTML = shareCode
-      ? `<img src="/share/${shareCode}/cover.png" alt="封面" style="width: 100%; height: 100%; object-fit: cover;">`
+      ? `<img src="/share/${shareCode}/cover.png" alt="封面" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.parentElement.innerHTML='<span style=&quot;font-size: 48px; opacity: 0.3;&quot;>🗺️</span>';">`
       : '<span style="font-size: 48px; opacity: 0.3;">🗺️</span>';
   }
   
@@ -4100,7 +4201,7 @@ async function regeneratePlan() {
     const resp = await authFetch(`/api/plan/${state.planId}/regenerate`, { method: 'POST' });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || '重新生成失败');
-    state.plan = data.plan;
+    state.plan = { ...data.plan, id: data.plan_id };
     state.structured = data.structured || {};
     state.planId = data.plan_id;
     state.extractedParams = data.extracted_params || state.extractedParams;
