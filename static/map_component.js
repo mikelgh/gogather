@@ -97,16 +97,37 @@ const GoGatherMap = (() => {
 
     const markers = [];
     const markerList = [];
+
+    // 完全重叠的坐标（如"枫泾古镇"游览与其返程大巴都从同一坐标出发）做环形微偏移，
+    // 否则后加的编号徽章会盖住先加的，点击列表时看不清到底定位到了哪个点
+    const disp = points.map(p => [p.lat, p.lng]);
+    {
+      const groups = new Map();
+      points.forEach((p, i) => {
+        const key = `${(+p.lat).toFixed(4)},${(+p.lng).toFixed(4)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(i);
+      });
+      for (const idxs of groups.values()) {
+        if (idxs.length < 2) continue;
+        const radius = 0.0012 * Math.ceil(idxs.length / 8); // ≈130m/圈
+        idxs.forEach((pi, k) => {
+          const angle = (2 * Math.PI * k) / idxs.length - Math.PI / 2;
+          disp[pi] = [points[pi].lat + radius * Math.sin(angle), points[pi].lng + radius * Math.cos(angle)];
+        });
+      }
+    }
+
     points.forEach((item, idx) => {
-      const marker = L.marker([item.lat, item.lng], { icon: numberIcon(idx + 1, dayColor(item)) }).addTo(map);
+      const marker = L.marker(disp[idx], { icon: numberIcon(idx + 1, dayColor(item)) }).addTo(map);
       marker.bindPopup(`<b>${idx + 1}. ${item.title}</b><br>${item.time_range || ''}<br>${item.location || ''}`);
       markers.push(marker);
-      markerList.push({ marker, item, idx });
+      markerList.push({ marker, item, idx, disp: disp[idx] });
     });
 
     // 路线：虚线 + 中点箭头
     if (points.length > 1) {
-      const latlngs = points.map(p => [p.lat, p.lng]);
+      const latlngs = disp;
       L.polyline(latlngs, { color: '#6366f1', weight: 3, opacity: 0.8, dashArray: '10, 10' }).addTo(map);
       for (let i = 0; i < latlngs.length - 1; i++) {
         const midLat = (latlngs[i][0] + latlngs[i + 1][0]) / 2;
@@ -140,10 +161,10 @@ const GoGatherMap = (() => {
     }
 
     function focus(idx) {
-      const { marker, item } = markerList[idx];
-      if (!item) return;
-      map.setView([item.lat, item.lng], Math.max(map.getZoom(), 15));
-      marker.openPopup();
+      const entry = markerList[idx];
+      if (!entry || !entry.item) return;
+      map.setView(entry.disp, Math.max(map.getZoom(), 15));
+      entry.marker.openPopup();
       highlight(listEl, idx);
     }
 
