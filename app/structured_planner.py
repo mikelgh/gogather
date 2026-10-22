@@ -131,6 +131,9 @@ STRUCTURED_PLAN_SYSTEM = """你是一个专业的团体出行方案结构化助�
    - 飞猪结果明确未返回该类数据（如餐厅数据缺失）
    此类项目 price 可填估算金额或"免费"。
 16. **餐饮必须落到具体商家**：若飞猪美食结果列出了任何具体商家（餐厅或酒店宴会场地，**即使飞猪注明"数据有限""需自行核实"也必须使用**），timeline 的午餐/晚餐项必须在 notes 中列出 2-3 家候选并注明各自特色（有人均价格必须写出），booking_link 填其中主推荐商家的链接；仅当美食结果真的一个商家都没列出时才允许写"周边餐厅"模糊推荐（此时 booking_link 为 null，且 notes 不得写"飞猪未提供数据"以外的虚假理由）。**不同餐次应推荐不同组合**（如午餐主推 A、晚餐主推 B），备选优先选当日活动区域附近的商家，不要把跨城区的远距商家混进同一餐候选。
+17. **收费项必须全部进预算**：timeline 中任何标了「¥X/人」的收费项（门票、餐饮、游船、演出）都必须有对应的 budget 条目，**逐条核对，一个都不能漏**。反之 budget 中出现的费用也必须在 timeline 有对应安排。
+18. **budget_per_person 必须算出来**：= 所有 `is_per_person=false` 的 budget 条目金额之和 ÷ 人数。禁止凭印象取整或估算；先加总再相除，结果与各项明细必须自洽。
+19. **每天都要有午餐**：Day 1 至 Day N 每一天都必须在 timeline 出现午餐项（Day 1 落地当天、Day N 返程当天同样需要，通常安排在活动/移动前后就近用餐）；晚餐可省略的只有"当天已乘机/高铁返程且在车用餐"的当晚。
 """
 
 
@@ -297,7 +300,37 @@ def generate_structured_plan(params: dict, flyai_sections: list, user_id: str = 
         return _fallback_structured(params, flyai_sections)
 
     _validate_coords(result, flyai_sections)
+    _recompute_budget_per_person(result, params)
     return result
+
+
+def _money(text) -> int | None:
+    """从 "¥6000" / "¥321×30 = ¥9630" 中取最后一个金额。"""
+    nums = re.findall(r"¥\s*([\d,]+(?:\.\d+)?)", str(text or ""))
+    if not nums:
+        return None
+    try:
+        return int(float(nums[-1].replace(",", "")))
+    except ValueError:
+        return None
+
+
+def _recompute_budget_per_person(result: dict, params: dict) -> None:
+    """人均预算按各明细实时重算，修正 LLM 取整/漏项导致的偏差。"""
+    total = 0
+    for item in result.get("budget", []):
+        if item.get("is_per_person"):
+            continue
+        amount = _money(item.get("estimated_cost"))
+        if amount:
+            total += amount
+    size = int(re.sub(r"\D", "", str(params.get("group_size", "")) or 0))
+    if not total or not size:
+        return
+    per_person = round(total / size)
+    stated = _money(result.get("budget_per_person"))
+    if stated is None or abs(stated - per_person) > 20:
+        result["budget_per_person"] = f"约¥{per_person}"
 
 
 def _validate_coords(result: dict, flyai_sections: list) -> None:
