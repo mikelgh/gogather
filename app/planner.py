@@ -333,8 +333,9 @@ def build_sections(inp: dict) -> tuple:
                 f_title, f_text, f_raw = flight_result
                 t_title, t_text, t_raw = train_result
                 dir_label = "去程" if direction == "outbound" else "返程"
+                dep, arr = (origin, city) if direction == "outbound" else (city, origin)
                 if f_text and t_text:
-                    combined_title = f"✈️🚄 {dir_label}（{origin}→{city}，飞机/高铁对比）"
+                    combined_title = f"✈️🚄 {dir_label}（{dep}→{arr}，飞机/高铁对比）"
                     combined_text = f"【飞机方案】\n{f_text}\n\n【高铁方案】\n{t_text}"
                     combined_raw = {"data": f"{f_raw}\n---\n{t_raw}", "status": 0, "message": "both"}
                     return (combined_title, combined_text, combined_raw)

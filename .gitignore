@@ -24,3 +24,7 @@ export/
 vibe_images/*
 !vibe_images/submission/
 SPR.md
+
+# Test coverage artifacts
+.coverage
+htmlcov/

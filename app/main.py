@@ -765,7 +765,7 @@ def _build_plan_ready(extracted: dict, original_message: str, conversation: list
         "data_captured_at": plan_result.get("data_captured_at", now),
     }
     db.save_plan(plan_dict)
-    db.generate_share_code(plan_id, user_id=user["id"])
+    db.generate_share_code(plan_id, user_id=user_id)
     db.save_conversation(user_id, "assistant", "方案已生成")
     return {
         "type": "plan_ready",
