@@ -2137,6 +2137,7 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  margin-left: 260px;  /* 让出侧栏空间，避免内容重叠 */
 }
 
 /* ── Responsive ────────────────────────────────────────── */
@@ -2173,6 +2174,7 @@
     transition: left 0.3s ease;
     box-shadow: none;
   }
+  .main-content { margin-left: 0; }  /* 移动端侧栏变抽屉，内容区不再需要让位 */
   .sidebar.open {
     left: 0;
     box-shadow: 4px 0 20px rgba(0,0,0,0.15);
