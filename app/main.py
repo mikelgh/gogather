@@ -6,9 +6,10 @@ import secrets
 import asyncio
 import logging
 from datetime import datetime
+from html import escape
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, BackgroundTasks
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -25,6 +26,16 @@ db.init_db()
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="聚行 · 飞猪 AI 旅行助手")
+
+
+@app.exception_handler(db.backup.BackupError)
+async def backup_unavailable(request: Request, exc: Exception):
+    log.error("Database operation blocked because its backup failed")
+    return JSONResponse(
+        {"detail": "备份未完成，本次数据操作已取消，请稍后重试或联系管理员"},
+        status_code=503,
+    )
+
 
 # 静态资源统一挂载（brand.css / copy.js / logo / 新增图片等）
 app.mount(
@@ -110,9 +121,12 @@ def get_current_user(authorization: str | None = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
     payload = auth.decode_access_token(token)
-    if not payload:
+    if not payload or not payload.get("sub"):
         raise HTTPException(status_code=401, detail="令牌无效或已过期")
-    return {"id": payload["sub"], "username": payload.get("username", "")}
+    user = db.get_user_by_id(payload["sub"])
+    if not user:
+        raise HTTPException(status_code=401, detail="账号不存在，请重新登录")
+    return {"id": user["id"], "username": user["username"]}
 
 
 def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
@@ -121,9 +135,10 @@ def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
         return None
     token = authorization.removeprefix("Bearer ").strip()
     payload = auth.decode_access_token(token)
-    if not payload:
+    if not payload or not payload.get("sub"):
         return None
-    return {"id": payload["sub"], "username": payload.get("username", "")}
+    user = db.get_user_by_id(payload["sub"])
+    return {"id": user["id"], "username": user["username"]} if user else None
 
 
 # Admin whitelist - only this account can access admin endpoints（按 user id 判定，改昵称不会掉管理员）
@@ -297,6 +312,10 @@ def share_page(code: str):
         group_label = group_size_str if group_size_str and "人" in group_size_str else f"{group_size_str}人" if group_size_str else ""
         desc_parts = [date_range, group_label]
         desc = " · ".join(filter(None, desc_parts)) or summary or "AI 生成的出行方案"
+        title = escape(title, quote=True)
+        og_title = escape(og_title, quote=True)
+        desc = escape(desc, quote=True)
+        code = escape(code, quote=True)
         # 替换 meta 标签
         html = html.replace(
             '<meta property="og:title" content="GoGather 聚行 · 出行方案">',
@@ -453,6 +472,31 @@ def api_update_username(req: UsernameRequest, user: dict = Depends(get_current_u
     return {"id": user["id"], "username": name, "token": auth.create_access_token(user["id"], name)}
 
 
+def _oauth_user(provider: str, provider_id: str | int, username: str, avatar_url: str = "") -> dict:
+    """只按第三方 ID 登录；昵称冲突时新建独立账号，绝不自动绑定。"""
+    lookup = getattr(db, f"get_user_by_{provider}_id")
+    create = getattr(db, f"create_{provider}_user")
+    candidate = username
+    for _ in range(10):
+        existing = lookup(provider_id)
+        if existing:
+            return existing
+        user = create(str(uuid.uuid4())[:12], candidate, provider_id, avatar_url)
+        if user:
+            return user
+        candidate = f"{username}_{secrets.token_hex(3)}"
+    # 并发首次登录可能已创建同一 provider ID，仍只认可 ID 绑定。
+    existing = lookup(provider_id)
+    if existing:
+        return existing
+    raise HTTPException(status_code=409, detail="创建用户失败，请重试")
+
+
+def _oauth_redirect(user: dict) -> RedirectResponse:
+    token = auth.create_access_token(user["id"], user["username"])
+    return RedirectResponse("/?" + urlencode({"token": token, "username": user["username"]}))
+
+
 # ── GitHub OAuth ──────────────────────────────────────────
 
 _oauth_states: dict[str, float] = {}
@@ -526,27 +570,7 @@ async def github_callback(code: str, state: str):
     github_username = gh_user["login"]
     avatar_url = gh_user.get("avatar_url", "")
 
-    existing = db.get_user_by_github_id(github_id)
-    if existing:
-        token = auth.create_access_token(existing["id"], existing["username"])
-        frontend_url = f"/?token={token}&username={existing['username']}"
-        return RedirectResponse(frontend_url)
-
-    existing_by_name = db.get_user_by_username(github_username)
-    if existing_by_name:
-        db.link_github_account(existing_by_name["id"], github_id, avatar_url)
-        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
-        frontend_url = f"/?token={token}&username={existing_by_name['username']}"
-        return RedirectResponse(frontend_url)
-
-    user_id = str(uuid.uuid4())[:12]
-    new_user = db.create_github_user(user_id, github_username, github_id, avatar_url)
-    if not new_user:
-        raise HTTPException(status_code=500, detail="创建用户失败")
-
-    token = auth.create_access_token(new_user["id"], new_user["username"])
-    frontend_url = f"/?token={token}&username={new_user['username']}"
-    return RedirectResponse(frontend_url)
+    return _oauth_redirect(_oauth_user("github", github_id, github_username, avatar_url))
 
 
 # ── Alipay OAuth ──────────────────────────────────────────
@@ -665,30 +689,7 @@ async def alipay_callback(auth_code: str = "", code: str = "", state: str = ""):
         nick_name = f"alipay_{alipay_user_id[-6:]}"
     avatar_url = user_info.get("avatar") or ""
 
-    # Find or create user
-    existing = db.get_user_by_alipay_id(alipay_user_id)
-    if existing:
-        token = auth.create_access_token(existing["id"], existing["username"])
-        return RedirectResponse(f"/?token={token}&username={existing['username']}")
-
-    existing_by_name = db.get_user_by_username(nick_name)
-    if existing_by_name:
-        # 绑定失败说明该支付宝已绑到别的账号，此时不能再登录进同名账号
-        if not db.link_alipay_account(existing_by_name["id"], alipay_user_id, avatar_url):
-            raise HTTPException(
-                status_code=409,
-                detail=f"该支付宝账号已绑定到其他用户，无法合并到「{nick_name}」",
-            )
-        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
-        return RedirectResponse(f"/?token={token}&username={existing_by_name['username']}")
-
-    user_id = str(uuid.uuid4())[:12]
-    new_user = db.create_alipay_user(user_id, nick_name, alipay_user_id, avatar_url)
-    if not new_user:
-        raise HTTPException(status_code=409, detail="创建用户失败（用户名或支付宝账号已被占用）")
-
-    token = auth.create_access_token(new_user["id"], new_user["username"])
-    return RedirectResponse(f"/?token={token}&username={new_user['username']}")
+    return _oauth_redirect(_oauth_user("alipay", alipay_user_id, nick_name, avatar_url))
 
 
 # ── Taobao OAuth ──────────────────────────────────────────
@@ -748,25 +749,7 @@ async def taobao_callback(code: str, state: str):
     from urllib.parse import unquote
     nick_name = unquote(taobao_nick) if taobao_nick else f"taobao_{taobao_user_id[:6]}"
 
-    # Find or create user
-    existing = db.get_user_by_taobao_id(taobao_user_id)
-    if existing:
-        token = auth.create_access_token(existing["id"], existing["username"])
-        return RedirectResponse(f"/?token={token}&username={existing['username']}")
-
-    existing_by_name = db.get_user_by_username(nick_name)
-    if existing_by_name:
-        db.link_taobao_account(existing_by_name["id"], taobao_user_id)
-        token = auth.create_access_token(existing_by_name["id"], existing_by_name["username"])
-        return RedirectResponse(f"/?token={token}&username={existing_by_name['username']}")
-
-    user_id = str(uuid.uuid4())[:12]
-    new_user = db.create_taobao_user(user_id, nick_name, taobao_user_id)
-    if not new_user:
-        raise HTTPException(status_code=500, detail="创建用户失败")
-
-    token = auth.create_access_token(new_user["id"], new_user["username"])
-    return RedirectResponse(f"/?token={token}&username={new_user['username']}")
+    return _oauth_redirect(_oauth_user("taobao", taobao_user_id, nick_name))
 
 
 # ── 旧版规划接口（保留向后兼容） ──────────────────────────
@@ -855,9 +838,22 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     }
     result = chat_mod.extract_params(req.message, req.conversation, user_id=user["id"],
                                      ui_selected=ui_selected)
-    extracted = result.get("extracted", {})
+    extracted = result.get("extracted", {}) or {}
     sufficient = result.get("sufficient", False)
     follow_up = result.get("follow_up", "")
+
+    # 跨轮次参数累积：历史轮次已确认的参数不能因最新消息没提而丢失（服务端兜底，
+    # 与提示词中的合并规则双保险），新提取的非空值覆盖旧值。
+    accumulated = db.get_latest_extracted_params(user["id"])
+    merged = dict(accumulated) if accumulated else {}
+    for key, value in extracted.items():
+        if value is not None and value != "" and value != []:
+            merged[key] = value
+        elif key not in merged:
+            merged[key] = value
+    extracted = merged
+    if extracted:
+        result["extracted"] = extracted
 
     if not extracted.get("budget_tier"):
         # 抽取漏掉时，先按消息原文关键词兜底，再用 UI 选择值
@@ -867,6 +863,11 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         extracted["transport_mode"] = req.transport_mode
     if not extracted.get("preferences") and req.preferences:
         extracted["preferences"] = req.preferences
+
+    # 服务端兜底：LLM 可能因提示词遵循度问题返回 sufficient=false，
+    # 但实际参数已齐全。用 is_sufficient() 做最终判断，避免无限追问。
+    if not sufficient and chat_mod.is_sufficient(extracted):
+        sufficient = True
 
     if sufficient:
         # 先用快速模型出行程大纲供用户确认；确认后由 /api/generate_plan 正式生成。
@@ -880,7 +881,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         if outline:
             outline_text = structured_planner.outline_to_text(outline)
             db.save_conversation(user["id"], "assistant", outline_text,
-                                 meta={"type": "outline", "outline": outline})
+                                 meta={"type": "outline", "outline": outline,
+                                       "extracted_params": extracted})
             return {
                 "type": "outline_proposal",
                 "message": outline_text,
@@ -894,7 +896,8 @@ def api_chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         )
 
     # Save follow-up question
-    db.save_conversation(user["id"], "assistant", follow_up)
+    db.save_conversation(user["id"], "assistant", follow_up,
+                         meta={"extracted_params": extracted})
     # 根据距离给出交通推荐：近距离直接推荐火车/飞机，中距离才需要用户选择
     transport_suggested = None
     _origin = extracted.get("origin")
@@ -960,6 +963,90 @@ def api_regenerate_plan(plan_id: str, user: dict = Depends(get_current_user)):
         plan.get("conversation") or [],
         user["id"],
     )
+
+
+@app.post("/api/plan/{plan_id}/reverify")
+def api_reverify_prices(plan_id: str, user: dict = Depends(get_current_user), background_tasks: BackgroundTasks = None):
+    """重新验证方案价格：刷新飞猪数据，更新价格过期的条目（异步执行）。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+
+    params = plan.get("params") or {}
+    if not params.get("city"):
+        raise HTTPException(status_code=400, detail="该方案缺少出行参数，无法重新验价")
+
+    # 标记为重新验价中
+    db.update_plan(plan_id, user["id"], reverify_status="pending")
+
+    # 后台执行重新验价
+    if background_tasks:
+        background_tasks.add_task(_reverify_prices_task, plan_id, user["id"], params)
+        return {
+            "success": True,
+            "message": "重新验价已启动，正在后台处理...",
+            "plan_id": plan_id,
+        }
+    else:
+        # 同步执行（备用）
+        _reverify_prices_task(plan_id, user["id"], params)
+        plan = db.get_plan(plan_id, user_id=user["id"])
+        return {
+            "success": True,
+            "plan": plan,
+            "message": "价格已刷新",
+        }
+
+
+def _reverify_prices_task(plan_id: str, user_id: str, params: dict):
+    """后台执行重新验价任务。"""
+    import traceback
+    try:
+        # 更新状态为进行中
+        db.update_plan(plan_id, user_id, reverify_status="processing")
+
+        # 重新查询飞猪数据
+        from . import planner as planner_mod
+        sections, warnings = planner_mod.build_sections(params)
+
+        # 用新数据重新生成结构化方案
+        from . import structured_planner
+        new_structured = structured_planner.generate_structured_plan(
+            params, sections, user_id=user_id, plan_id=plan_id
+        )
+
+        if new_structured:
+            # 更新方案
+            db.update_plan(
+                plan_id,
+                user_id,
+                structured=new_structured,
+                warnings=warnings,
+                reverify_status="completed",
+            )
+        else:
+            db.update_plan(plan_id, user_id, reverify_status="failed")
+
+    except Exception as e:
+        print(f"Reverify task failed: {e}")
+        traceback.print_exc()
+        db.update_plan(plan_id, user_id, reverify_status="failed", reverify_error=str(e))
+
+
+@app.get("/api/plan/{plan_id}/reverify/status")
+def api_reverify_status(plan_id: str, user: dict = Depends(get_current_user)):
+    """查询重新验价任务状态。"""
+    plan = db.get_plan(plan_id, user_id=user["id"])
+    if not plan:
+        raise HTTPException(status_code=404, detail="方案不存在")
+
+    status = plan.get("reverify_status", "idle")
+    return {
+        "plan_id": plan_id,
+        "status": status,
+        "error": plan.get("reverify_error"),
+        "plan": plan if status == "completed" else None,
+    }
 
 
 @app.put("/api/plan/{plan_id}/task/{task_id}")
@@ -1098,7 +1185,16 @@ def api_get_shared(code: str):
     plan = db.get_plan_by_share(code)
     if not plan:
         raise HTTPException(status_code=404, detail="分享码无效")
-    return plan
+    # share.html 的展示字段；地图和提醒使用各自的公开接口。
+    public = {key: plan.get(key) for key in (
+        "summary", "timeline", "budget", "action_items", "budget_per_person",
+        "created_at", "data_captured_at",
+    )}
+    params = plan.get("params") or {}
+    public["params"] = {key: params[key] for key in (
+        "city", "origin", "check_in", "check_out", "group_size",
+    ) if key in params}
+    return public
 
 
 def _recommend_restaurants(plan: dict, item_index: int) -> dict:

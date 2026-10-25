@@ -56,6 +56,16 @@ class TestAuth:
         r = api_client.get("/api/me")
         assert r.status_code in (401, 403)
 
+    def test_token_for_missing_account_cannot_access_or_create_data(self, api_client, temp_db):
+        from app import auth, main
+
+        token = auth.create_access_token("deleted-account", "former-user")
+        headers = {"Authorization": f"Bearer {token}"}
+        assert api_client.get("/api/plans", headers=headers).status_code == 401
+        assert api_client.post("/api/chat", headers=headers, json={"message": "计划旅行"}).status_code == 401
+        assert main.get_optional_user(headers["Authorization"]) is None
+        assert temp_db.get_conversations("deleted-account") == []
+
 
 class TestPlanCrud:
     def test_save_get_list_delete(self, api_client, auth_headers, temp_db):
@@ -127,6 +137,21 @@ class TestPlanCrud:
         )
         assert r.status_code == 200
         assert r.json()["action_items"][0]["status"] == "confirmed"
+
+
+class TestAdminAccess:
+    @pytest.mark.parametrize("path", [
+        "/api/admin/users", "/api/admin/plans", "/api/admin/ai-usage",
+        "/api/admin/plan/test-plan/ai-usage",
+    ])
+    def test_admin_endpoints_enforce_permissions(self, api_client, auth_headers, monkeypatch, path):
+        from app import main
+
+        assert api_client.get(path).status_code == 401
+        assert api_client.get(path, headers=auth_headers).status_code == 403
+        owner = api_client.get("/api/me", headers=auth_headers).json()["id"]
+        monkeypatch.setattr(main, "ADMIN_USER_IDS", {owner})
+        assert api_client.get(path, headers=auth_headers).status_code == 200
 
 
 class TestVerifyPrices:
@@ -532,3 +557,335 @@ def test_me_returns_bound_identity(api_client, auth_headers, temp_db):
     me = api_client.get("/api/me", headers=auth_headers).json()
     assert me["github_bound"] is True
     assert me["alipay_bound"] is True
+
+
+@pytest.fixture()
+def oauth_callback(api_client, monkeypatch):
+    """只模拟三方 HTTP 响应与支付宝签名，账号查询和创建使用 temp_db。"""
+    import httpx
+    from urllib.parse import parse_qs, quote, urlsplit
+    from app import main, alipay_oauth, auth
+
+    identity = {}
+
+    class OAuthClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, **kwargs):
+            if url == main.GITHUB_TOKEN_URL:
+                return httpx.Response(200, json={"access_token": "test-token"})
+            assert url == main.TAOBAO_TOKEN_URL
+            return httpx.Response(200, json={
+                "access_token": "test-token", "taobao_user_id": identity["id"],
+                "taobao_nick": quote(identity["name"], safe=""),
+            })
+
+        async def get(self, url, **kwargs):
+            if url == main.GITHUB_USER_URL:
+                return httpx.Response(200, json={"id": int(identity["id"]), "login": identity["name"]})
+            if kwargs["params"]["stage"] == "token":
+                return httpx.Response(200, json={"alipay_system_oauth_token_response": {
+                    "access_token": "test-token", "user_id": identity["id"],
+                }})
+            return httpx.Response(200, json={"alipay_user_info_share_response": {
+                "user_id": identity["id"], "nick_name": identity["name"],
+            }})
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", OAuthClient)
+    monkeypatch.setattr(alipay_oauth, "build_token_params", lambda *args: {"stage": "token"})
+    monkeypatch.setattr(alipay_oauth, "build_userinfo_params", lambda *args: {"stage": "info"})
+
+    def login(provider, provider_id, name):
+        identity.update(id=provider_id, name=name)
+        state = str(uuid.uuid4())
+        monkeypatch.setitem(main._oauth_states, state, 0)
+        response = api_client.get(
+            f"/api/auth/{provider}/callback", params={"code": "test-code", "state": state},
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        query = parse_qs(urlsplit(response.headers["location"]).query)
+        assert set(query) == {"token", "username"}
+        payload = auth.decode_access_token(query["token"][0])
+        assert query["username"] == [payload["username"]]
+        return payload, {"Authorization": f"Bearer {query['token'][0]}"}
+
+    return login
+
+
+@pytest.mark.parametrize("provider", ["github", "alipay", "taobao"])
+@pytest.mark.parametrize("already_bound", [False, True])
+def test_oauth_same_name_never_takes_over(provider, already_bound, oauth_callback, api_client, temp_db):
+    name = "同名&user=other+#"
+    original = temp_db.create_user("original-user", name, "test-hash")
+    if already_bound:
+        assert getattr(temp_db, f"link_{provider}_account")(original["id"], "111111", "")
+    before = temp_db.get_user_by_id(original["id"])
+    plan = _make_plan_payload(original["id"])
+    temp_db.save_plan(plan)
+
+    newcomer, headers = oauth_callback(provider, "222222", name)
+    assert newcomer["sub"] != original["id"]
+    assert newcomer["username"].startswith(name + "_")
+    assert len(newcomer["username"]) == len(name) + 7
+    assert temp_db.get_user_by_id(original["id"]) == before
+    assert getattr(temp_db, f"get_user_by_{provider}_id")("222222")["id"] == newcomer["sub"]
+    assert api_client.get(f"/api/plan/{plan['id']}", headers=headers).status_code == 404
+
+    # provider 昵称变动不会改变账号归属或本地昵称。
+    again, _ = oauth_callback(provider, "222222", "不同昵称")
+    assert again["sub"] == newcomer["sub"]
+    assert again["username"] == newcomer["username"]
+    if already_bound:
+        old_login, old_headers = oauth_callback(provider, "111111", "不同昵称")
+        assert old_login["sub"] == original["id"]
+        assert old_login["username"] == name
+        assert api_client.get(f"/api/plan/{plan['id']}", headers=old_headers).status_code == 200
+    assert temp_db.get_user_by_id(original["id"]) == before
+
+
+@pytest.mark.parametrize("provider", ["github", "alipay", "taobao"])
+def test_oauth_unique_name_preserved(provider, oauth_callback, temp_db):
+    name = "新用户&name=other+#"
+    user, _ = oauth_callback(provider, "333333", name)
+    assert user["username"] == name
+    assert temp_db.get_user_by_username(name)["id"] == user["sub"]
+
+
+@pytest.mark.parametrize("insert_new", [False, True])
+def test_save_plan_share_collision_keeps_both_plans(temp_db, monkeypatch, insert_new):
+    import sqlite3
+
+    for uid in ("owner-a", "owner-b"):
+        temp_db.create_user(uid, uid, "test-hash")
+    first = _make_plan_payload("owner-a")
+    second = _make_plan_payload("owner-b")
+    first["share_code"] = "aaaaaa"
+    temp_db.save_plan(first)
+    temp_db.save_plan(second)
+    before = [temp_db.get_plan(p["id"]) for p in (first, second)]
+    conflicting = dict(second, share_code="aaaaaa", summary="不得写入")
+    if insert_new:
+        conflicting["id"] = "third-plan"
+
+    get_conn = temp_db._get_conn
+    connections = []
+
+    def tracked_conn():
+        conn = get_conn()
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(temp_db, "_get_conn", tracked_conn)
+    with pytest.raises(sqlite3.IntegrityError):
+        temp_db.save_plan(conflicting)
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connections[0].execute("SELECT 1")
+    assert [temp_db.get_plan(p["id"]) for p in (first, second)] == before
+    assert temp_db.get_plan_by_share("aaaaaa")["id"] == first["id"]
+    if insert_new:
+        assert temp_db.get_plan("third-plan") is None
+    temp_db.save_plan(dict(second, summary="正常更新"))
+    assert temp_db.get_plan(second["id"])["summary"] == "正常更新"
+
+
+def test_generate_share_collision_retries_and_is_idempotent(api_client, auth_headers, temp_db, monkeypatch):
+    owner = api_client.get("/api/me", headers=auth_headers).json()["id"]
+    temp_db.create_user("other-owner", "other-owner", "test-hash")
+    first = _make_plan_payload("other-owner")
+    second = _make_plan_payload(owner)
+    first["share_code"] = "aaaaaa"
+    temp_db.save_plan(first)
+    temp_db.save_plan(second)
+    first_before = temp_db.get_plan(first["id"])
+    second_before = temp_db.get_plan(second["id"])
+    chars = iter("aaaaaabbbbbb")
+    monkeypatch.setattr(temp_db.secrets, "choice", lambda alphabet: next(chars))
+
+    url = f"/api/plan/{second['id']}/share"
+    for _ in range(2):
+        response = api_client.post(url, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["share_code"] == "bbbbbb"
+    assert temp_db.get_plan(first["id"]) == first_before
+    assert temp_db.get_plan(second["id"]) == dict(second_before, share_code="bbbbbb")
+    assert temp_db.generate_share_code(first["id"], user_id=owner) is None
+    assert temp_db.generate_share_code("missing", user_id=owner) is None
+
+
+def test_generate_share_does_not_overwrite_concurrent_edit(temp_db, monkeypatch):
+    plan = _make_plan_payload("owner")
+    temp_db.save_plan(plan)
+    updated = dict(plan, summary="并发新摘要", updated_at="2026-11-01T12:00:00",
+                   timeline=[{"title": "并发新行程"}])
+    edited = False
+
+    def choice(alphabet):
+        nonlocal edited
+        if not edited:
+            edited = True
+            temp_db.save_plan(updated)
+        return "c"
+
+    monkeypatch.setattr(temp_db.secrets, "choice", choice)
+    assert temp_db.generate_share_code(plan["id"], "owner") == "cccccc"
+    saved = temp_db.get_plan(plan["id"])
+    for key in ("summary", "updated_at", "timeline"):
+        assert saved[key] == updated[key]
+
+
+def test_concurrent_share_returns_same_code(temp_db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, local
+
+    plan = _make_plan_payload("owner")
+    temp_db.save_plan(plan)
+    barrier = Barrier(2)
+    state = local()
+
+    def choice(alphabet):
+        if not getattr(state, "started", False):
+            state.started = True
+            barrier.wait(timeout=10)
+        return state.char
+
+    def share(char):
+        state.char = char
+        return temp_db.generate_share_code(plan["id"], "owner")
+
+    monkeypatch.setattr(temp_db.secrets, "choice", choice)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        codes = list(pool.map(share, ("a", "b")))
+    assert codes[0] == codes[1] == temp_db.get_plan(plan["id"])["share_code"]
+    assert codes[0] in ("aaaaaa", "bbbbbb")
+
+
+@pytest.mark.parametrize("description_source", ["summary", "group_size", "dates"])
+def test_share_page_escapes_dynamic_html(api_client, temp_db, description_source):
+    from html import escape
+    from html.parser import HTMLParser
+    from urllib.parse import quote
+
+    class Tags(HTMLParser):
+        def __init__(self, text):
+            super().__init__()
+            self.tags = []
+            self.metas = {}
+            self.feed(text)
+
+        def handle_starttag(self, tag, attrs):
+            self.tags.append(tag)
+            if tag == "meta":
+                attrs = dict(attrs)
+                if "property" in attrs:
+                    self.metas[attrs["property"]] = attrs["content"]
+
+    plan = _make_plan_payload("owner")
+    plan["share_code"] = "safe01"
+    temp_db.save_plan(plan)
+    baseline = Tags(api_client.get("/share/safe01").text)
+    attack = '\"><script id="injected">alert(1)</script><b title=\'x\'>&'
+    code = '\"><script id="injected">'
+    plan["share_code"] = code
+    plan["params"] = {"city": attack, "origin": attack}
+    if description_source == "summary":
+        plan["summary"] = attack
+    elif description_source == "group_size":
+        plan["params"]["group_size"] = attack
+    else:
+        plan["params"].update(check_in="2026-" + attack, check_out="2026-" + attack)
+    temp_db.save_plan(plan)
+    response = api_client.get("/share/" + quote(code, safe=""))
+    assert response.status_code == 200
+    html = response.text
+    parsed = Tags(html)
+    assert parsed.tags == baseline.tags  # 模板原有脚本不变，输入不能增加任何标签。
+    assert '<script id="injected">' not in html
+    assert escape(attack, quote=True) in html
+    assert escape(code, quote=True) in html
+    assert parsed.metas["og:title"] == f"GoGather 聚行 · {attack}→{attack} 出行方案"
+    assert attack in parsed.metas["og:description"]
+    assert parsed.metas["og:image"] == f"/share/{code}/cover.png"
+
+
+def test_public_share_allowlist_preserves_display_fields(api_client, auth_headers, temp_db):
+    owner = api_client.get("/api/me", headers=auth_headers).json()["id"]
+    plan = _make_plan_payload(owner)
+    plan.update(
+        share_code="public", conversation=[{"role": "user", "content": "私密会话"}],
+        original_input="私密原始输入", members=[{"name": "私密成员"}],
+        data_captured_at="2026-10-22T11:00:00",
+        room_allocation=[{"notes": "私密分房"}], markdown="私密内部文本",
+        warnings=["内部告警"],
+    )
+    plan["params"].update(check_in="2026-11-01", check_out="2026-11-03", internal_note="私密参数")
+    plan["timeline"][0].update(
+        price="¥50", notes="游览", booking_link="https://example.com/book", image="/static/test.jpg",
+        lat=30.67, lng=104.06, action_item_id="activity-1", location="宽窄巷子",
+        restaurant_options=[{"name": "餐厅", "highlights": "本地菜", "url": "https://example.com/meal"}],
+        restaurant_options_note=None,
+    )
+    plan["action_items"] = [{"id": "activity-1", "type": "activity", "title": "预订门票",
+                             "description": "提前预订", "estimated_cost": "¥50", "status": "pending"}]
+    temp_db.save_plan(plan)
+    response = api_client.get("/api/share/public")
+    assert response.status_code == 200
+    public = response.json()
+    display_fields = {"summary", "timeline", "budget", "action_items", "budget_per_person",
+                      "created_at", "data_captured_at"}
+    assert set(public) == display_fields | {"params"}
+    for key in display_fields:
+        assert public[key] == plan[key]
+    assert public["params"] == {key: plan["params"][key] for key in (
+        "city", "origin", "check_in", "check_out", "group_size",
+    )}
+    assert "私密" not in response.text
+    owned = api_client.get(f"/api/plan/{plan['id']}", headers=auth_headers).json()
+    assert owned == temp_db.get_plan(plan["id"])
+    for key in ("conversation", "original_input", "user_id", "members", "markdown", "params"):
+        assert owned[key] == plan[key]
+    # 地图和提醒为独立公开接口，完整保留其展示数据；已有坐标无需访问外部服务。
+    map_response = api_client.get("/api/share/public/map")
+    assert map_response.status_code == 200
+    assert map_response.json()["title"] == "广州 → 成都"
+    assert map_response.json()["timeline"][0]["lat"] == 30.67
+    assert map_response.json()["timeline"][0]["lng"] == 104.06
+    assert api_client.get("/map/public").status_code == 200
+    assert api_client.get("/api/share/public/reminders").json()["reminders"]
+    assert api_client.get("/api/share/missing").status_code == 404
+
+
+@pytest.mark.parametrize("llm_result", [None, {}])
+def test_real_revise_failure_leaves_all_state_unchanged(api_client, auth_headers, temp_db, monkeypatch, llm_result):
+    from unittest.mock import Mock
+    from app import structured_planner
+
+    owner = api_client.get("/api/me", headers=auth_headers).json()["id"]
+    plan = _make_plan_payload(owner)
+    plan["conversation"] = [{"role": "user", "content": "原始会话"}]
+    temp_db.save_plan(plan)
+    temp_db.save_plan_revision(plan["id"], 1, "已有修订", plan)
+    temp_db.save_conversation(owner, "user", "已有用户会话")
+    temp_db.save_conversation(owner, "assistant", "已有助手会话")
+    before = (temp_db.get_plan(plan["id"]), temp_db.get_plan_revisions(plan["id"]),
+              temp_db.get_conversations(owner))
+    complete = Mock(return_value=llm_result)
+    monkeypatch.setattr(structured_planner._llm, "complete_json", complete)
+
+    response = api_client.post(f"/api/plan/{plan['id']}/revise", headers=auth_headers,
+                               json={"message": "第三天换个景点"})
+    assert response.status_code == 500
+    assert response.json()["detail"] == "修改失败，请重试"
+    complete.assert_called_once()
+    assert complete.call_args.kwargs["action"] == "revise_plan"
+    assert complete.call_args.kwargs["plan_id"] == plan["id"]
+    assert complete.call_args.kwargs["user_id"] == owner
+    assert (temp_db.get_plan(plan["id"]), temp_db.get_plan_revisions(plan["id"]),
+            temp_db.get_conversations(owner)) == before

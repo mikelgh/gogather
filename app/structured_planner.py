@@ -1157,7 +1157,7 @@ REVISE_PLAN_SYSTEM = """你是一个旅行方案修改助手。根据用户的�
 """
 
 
-def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id: str = None, plan_id: str = None) -> dict:
+def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id: str | None = None, plan_id: str | None = None) -> dict | None:
     """基于用户反馈修改现有方案。
 
     Args:
@@ -1168,7 +1168,7 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id
         plan_id: 方案ID（用于追踪 AI 使用量）
 
     Returns:
-        修改后的结构化方案
+        修改后的结构化方案；生成失败时返回 None。
     """
     import json
 
@@ -1190,7 +1190,7 @@ def revise_plan(params: dict, current_plan: dict, revision_message: str, user_id
     result = _llm.complete_json(REVISE_PLAN_SYSTEM, user_prompt, max_tokens=4000, use_fast_model=True,
                                 user_id=user_id, plan_id=plan_id, action="revise_plan")
     if not result:
-        return current_plan
+        return None
 
     _recompute_budget_per_person(result, {"group_size": group_size})
     _compute_days_nights(result, current_plan.get("params", {}))

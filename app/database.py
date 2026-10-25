@@ -3,9 +3,10 @@ import json
 import os
 import sqlite3
 import string
-import random
+import secrets
+from contextlib import closing
 
-from . import config
+from . import backup, config
 
 DB_PATH = os.path.join(config.BASE_DIR, "data", "plans.db")
 
@@ -69,6 +70,11 @@ def init_db():
     # migration: 价格时效基线（飞猪查询批次完成时间）
     if "data_captured_at" not in cols:
         conn.execute("ALTER TABLE plans ADD COLUMN data_captured_at TEXT")
+
+    # migration: 重新验价状态
+    if "reverify_status" not in cols:
+        conn.execute("ALTER TABLE plans ADD COLUMN reverify_status TEXT DEFAULT 'idle'")
+        conn.execute("ALTER TABLE plans ADD COLUMN reverify_error TEXT")
 
     # migration: add github_id and avatar_url columns for OAuth
     user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
@@ -244,7 +250,6 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def save_plan(plan_dict: dict) -> dict:
-    conn = _get_conn()
     data = {
         "id": plan_dict["id"],
         "user_id": plan_dict.get("user_id", "legacy"),
@@ -266,23 +271,56 @@ def save_plan(plan_dict: dict) -> dict:
         "warnings": json.dumps(plan_dict.get("warnings", []), ensure_ascii=False),
         "used_llm": int(plan_dict.get("used_llm", False)),
         "data_captured_at": plan_dict.get("data_captured_at"),
+        "reverify_status": plan_dict.get("reverify_status", "idle"),
+        "reverify_error": plan_dict.get("reverify_error"),
     }
-    conn.execute("""
-        INSERT OR REPLACE INTO plans (
-            id, user_id, created_at, updated_at, phase, original_input, conversation,
-            params, summary, action_items, timeline, budget, room_allocation,
-            budget_per_person, share_code, members, markdown, warnings, used_llm,
-            data_captured_at
-        ) VALUES (
-            :id, :user_id, :created_at, :updated_at, :phase, :original_input, :conversation,
-            :params, :summary, :action_items, :timeline, :budget, :room_allocation,
-            :budget_per_person, :share_code, :members, :markdown, :warnings, :used_llm,
-            :data_captured_at
+    # 只以主键判定更新；分享码冲突必须报错，不能删除另一个方案。
+    columns = ", ".join(data)
+    values = ", ".join(f":{key}" for key in data)
+    updates = ", ".join(f"{key} = excluded.{key}" for key in data if key != "id")
+    with closing(_get_conn()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM plans WHERE id = ?", (data["id"],)).fetchone():
+            backup.create_backup(DB_PATH, reason="pre-update")
+        conn.execute(
+            f"INSERT INTO plans ({columns}) VALUES ({values}) "
+            f"ON CONFLICT(id) DO UPDATE SET {updates}",
+            data,
         )
-    """, data)
-    conn.commit()
-    conn.close()
     return plan_dict
+
+
+def update_plan(plan_id: str, user_id: str, **fields) -> dict | None:
+    """更新方案的指定字段。"""
+    allowed_fields = {
+        "structured", "warnings", "markdown", "reverify_status", "reverify_error",
+        "summary", "action_items", "timeline", "budget", "room_allocation",
+        "budget_per_person", "members", "phase", "params",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed_fields}
+    if not updates:
+        return get_plan(plan_id, user_id)
+
+    # 处理 JSON 字段
+    json_fields = {"structured", "warnings", "action_items", "timeline", "budget", "room_allocation", "members", "params"}
+    for k in json_fields:
+        if k in updates and isinstance(updates[k], (dict, list)):
+            updates[k] = json.dumps(updates[k], ensure_ascii=False)
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [plan_id]
+    if user_id:
+        values.append(user_id)
+        user_clause = " AND user_id = ?"
+    else:
+        user_clause = ""
+
+    with closing(_get_conn()) as conn, conn:
+        conn.execute(
+            f"UPDATE plans SET {set_clause}, updated_at = datetime('now') WHERE id = ?{user_clause}",
+            values,
+        )
+    return get_plan(plan_id, user_id)
 
 
 def get_plan(plan_id: str, user_id: str | None = None) -> dict | None:
@@ -312,16 +350,15 @@ def get_plan_by_share(share_code: str) -> dict | None:
 
 def delete_plan(plan_id: str, user_id: str | None = None) -> bool:
     """删除方案。返回是否成功删除。"""
-    conn = _get_conn()
-    if user_id:
-        cursor = conn.execute(
-            "DELETE FROM plans WHERE id = ? AND user_id = ?", (plan_id, user_id)
-        )
-    else:
-        cursor = conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
-    conn.commit()
-    conn.close()
-    return cursor.rowcount > 0
+    where = "id = ? AND user_id = ?" if user_id else "id = ?"
+    args = (plan_id, user_id) if user_id else (plan_id,)
+    with closing(_get_conn()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute(f"SELECT 1 FROM plans WHERE {where}", args).fetchone():
+            return False
+        backup.create_backup(DB_PATH, reason="pre-delete")
+        cursor = conn.execute(f"DELETE FROM plans WHERE {where}", args)
+        return cursor.rowcount > 0
 
 
 def update_task_status(plan_id: str, task_id: str, status: str, user_id: str | None = None) -> dict | None:
@@ -339,15 +376,38 @@ def update_task_status(plan_id: str, task_id: str, status: str, user_id: str | N
 
 
 def generate_share_code(plan_id: str, user_id: str | None = None) -> str | None:
-    plan = get_plan(plan_id, user_id=user_id)
-    if not plan:
-        return None
-    if plan.get("share_code"):
-        return plan["share_code"]
-    code = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-    plan["share_code"] = code
-    save_plan(plan)
-    return code
+    where = "id = ?"
+    args = (plan_id,)
+    if user_id is not None:
+        where += " AND user_id = ?"
+        args += (user_id,)
+    alphabet = string.ascii_lowercase + string.digits
+    with closing(_get_conn()) as conn:
+        for _ in range(20):
+            try:
+                with conn:
+                    row = conn.execute(
+                        f"SELECT share_code FROM plans WHERE {where}", args
+                    ).fetchone()
+                    if not row:
+                        return None
+                    if row["share_code"]:
+                        return row["share_code"]
+                    code = ''.join(secrets.choice(alphabet) for _ in range(6))
+                    # 条件更新保留同一方案并发生成的码，不回写旧方案快照。
+                    conn.execute(
+                        f"UPDATE plans SET share_code = ? WHERE {where} "
+                        "AND (share_code IS NULL OR share_code = '')",
+                        (code,) + args,
+                    )
+                    row = conn.execute(
+                        f"SELECT share_code FROM plans WHERE {where}", args
+                    ).fetchone()
+                    return row["share_code"] if row else None
+            except sqlite3.IntegrityError:
+                # 唯一索引碰撞：事务已回滚，重新生成。
+                continue
+    raise RuntimeError("无法生成唯一分享码，请重试")
 
 
 def list_plans(user_id: str) -> list[dict]:
@@ -413,11 +473,33 @@ def get_conversations(user_id: str, limit: int = 50) -> list[dict]:
     return out
 
 
-def clear_conversations(user_id: str) -> None:
+def get_latest_extracted_params(user_id: str, limit: int = 50) -> dict:
+    """多轮对话中已确认的规划参数会随对话记录累积保存；返回最近一次累积的参数，无则空 dict。"""
+    import json
     conn = _get_conn()
-    conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
-    conn.commit()
+    rows = conn.execute(
+        "SELECT meta FROM conversations "
+        "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
     conn.close()
+    for r in rows:
+        try:
+            meta = json.loads(r["meta"]) if r["meta"] else None
+        except (ValueError, TypeError):
+            continue
+        if isinstance(meta, dict) and isinstance(meta.get("extracted_params"), dict):
+            return meta["extracted_params"]
+    return {}
+
+
+def clear_conversations(user_id: str) -> None:
+    with closing(_get_conn()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("SELECT 1 FROM conversations WHERE user_id = ? LIMIT 1", (user_id,)).fetchone():
+            return
+        backup.create_backup(DB_PATH, reason="pre-delete")
+        conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
 
 
 def get_user_by_alipay_id(alipay_id: str) -> dict | None:

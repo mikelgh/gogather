@@ -170,11 +170,15 @@ def _record_usage(user_id, plan_id, action, payload, data):
 def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_fast_model: bool = False,
              user_id: str = None, plan_id: str = None, action: str = "complete"):
     system = _SYSTEM_PROMPTS.get(mode, _BASE_EXPLORE)
-    for provider in _provider_chain():
+    chain = _provider_chain()
+    log.warning("complete provider chain: %s", chain)
+    for provider in chain:
+        log.warning("complete trying provider: %s", provider)
         built = _build_payload(provider, system=system, user_prompt=user_prompt,
                                max_tokens=max_tokens, use_fast_model=use_fast_model,
                                temperature=0.2, json_mode=False)
         if not built:
+            log.warning("complete skipping %s (no config)", provider)
             continue
         url, headers, payload = built
         try:
@@ -184,10 +188,12 @@ def complete(user_prompt: str, mode: str = "event", max_tokens: int = 4000, use_
                 data = resp.json()
             _record_usage(user_id, plan_id, action, payload, data)
             _PROVIDER_COOLDOWN.pop(provider, None)
+            log.warning("complete success via %s", provider)
             return data["choices"][0]["message"]["content"].strip()
         except Exception as e:
             log.warning("LLM complete failed (%s): %s: %s", provider, type(e).__name__, e)
             _PROVIDER_COOLDOWN[provider] = time.time() + _COOLDOWN_SECONDS
+    log.error("complete all providers exhausted, returning None")
     return None
 
 
@@ -198,11 +204,15 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
     自适应重试：若检测到 JSON 被截断（Unterminated string），自动提升 max_tokens 重试；
     单个供应商重试穷尽后自动切换到下一个可用供应商（如百炼限流 → minimax）。
     """
-    for provider in _provider_chain():
+    chain = _provider_chain()
+    log.warning("complete_json provider chain: %s", chain)
+    for provider in chain:
+        log.warning("complete_json trying provider: %s", provider)
         built = _build_payload(provider, system=system_prompt, user_prompt=user_prompt,
                                max_tokens=max_tokens, use_fast_model=use_fast_model,
                                temperature=0.1, json_mode=True)
         if not built:
+            log.warning("complete_json skipping %s (no config)", provider)
             continue
         url, headers, payload_template = built
         current_max_tokens = max_tokens
@@ -220,6 +230,7 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
                 text = text.lstrip("```json").rstrip("```").strip()
                 result = _json.loads(text)
                 _PROVIDER_COOLDOWN.pop(provider, None)
+                log.warning("complete_json success via %s", provider)
                 return result
             except _json.JSONDecodeError as e:
                 # 检测是否因截断导致解析失败
@@ -239,4 +250,5 @@ def complete_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000, 
         # 该供应商重试穷尽，进入冷却并尝试下一个供应商
         _PROVIDER_COOLDOWN[provider] = time.time() + _COOLDOWN_SECONDS
         log.warning("Provider %s exhausted, falling back to next provider", provider)
+    log.error("complete_json all providers exhausted, returning None")
     return None

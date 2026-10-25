@@ -34,6 +34,23 @@
   padding: 7px 12px; border-radius: 8px; transition: var(--transition);
 }
 .topbar-link:hover { color: var(--primary); background: var(--primary-bg); }
+.topbar-link.active { color: var(--primary); font-weight: 600; }
+
+/* ─ 移动端菜单按钮 ───────────────────────────────────── */
+.menu-toggle {
+  display: none; background: none; border: none; cursor: pointer;
+  padding: 8px; border-radius: 8px; color: var(--text);
+}
+.menu-toggle:hover { background: var(--surface-hover); }
+.menu-toggle svg { width: 22px; height: 22px; }
+.mobile-nav {
+  display: none; position: absolute; top: 100%; left: 0; right: 0;
+  background: rgba(255,255,255,0.98); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-light); padding: 12px 24px;
+  flex-direction: column; gap: 4px;
+}
+.mobile-nav.open { display: flex; }
+.mobile-nav .topbar-link { padding: 12px; font-size: 15px; }
 
 /* ── 通用按钮 ─────────────────────────────────────────── */
 .btn {
@@ -186,6 +203,20 @@
 .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.55s ease, transform 0.55s ease; }
 .js .reveal.visible { opacity: 1; transform: none; }
 
+/* ── 返回顶部按钮 ─────────────────────────────────────── */
+.back-to-top {
+  position: fixed; bottom: 24px; right: 24px; z-index: 40;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--primary); color: #fff; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.25s ease;
+}
+.back-to-top.visible { opacity: 1; visibility: visible; transform: none; }
+.back-to-top:hover { background: var(--primary-dark, #4f46e5); transform: translateY(-2px); }
+.back-to-top svg { width: 20px; height: 20px; }
+
 @media (max-width: 720px) {
   .section { padding: 60px 20px; }
   .hero { padding: 64px 20px 72px; }
@@ -194,6 +225,8 @@
   .section-title { font-size: 25px; }
   .cta-title { font-size: 24px; }
   .topbar-link.hide-sm { display: none; }
+  .menu-toggle { display: block; }
+  .back-to-top { bottom: 16px; right: 16px; width: 40px; height: 40px; }
 }
 </style>
 </head>
@@ -207,11 +240,24 @@
       <span class="brand-logo-cn">聚行</span>
     </a>
     <nav class="topbar-nav">
-      <a class="topbar-link hide-sm" href="/guide#features">功能</a>
-      <a class="topbar-link hide-sm" href="/guide#how">怎么用</a>
-      <a class="topbar-link hide-sm" href="/guide#faq">常见问题</a>
+      <a class="topbar-link hide-sm" href="#features">功能</a>
+      <a class="topbar-link hide-sm" href="#how">怎么用</a>
+      <a class="topbar-link hide-sm" href="#faq">常见问题</a>
       <a class="btn btn-primary btn-sm" href="/">开始规划</a>
+      <button class="menu-toggle" aria-label="菜单" onclick="toggleMobileNav()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line class="menu-line-1" x1="3" y1="6" x2="21" y2="6"></line>
+          <line class="menu-line-2" x1="3" y1="12" x2="21" y2="12"></line>
+          <line class="menu-line-3" x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
     </nav>
+  </div>
+  <div class="mobile-nav" id="mobileNav">
+    <a class="topbar-link" href="#features" onclick="closeMobileNav()">功能</a>
+    <a class="topbar-link" href="#how" onclick="closeMobileNav()">怎么用</a>
+    <a class="topbar-link" href="#faq" onclick="closeMobileNav()">常见问题</a>
+    <a class="btn btn-primary btn-sm" href="/" style="margin-top:4px;">开始规划</a>
   </div>
 </div>
 
@@ -390,6 +436,12 @@
 
 <div class="footer">由 GoGather 聚行生成 · 出行数据来自飞猪</div>
 
+<button class="back-to-top" id="backToTop" aria-label="返回顶部" onclick="scrollToTop()">
+  <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="6 14 11 9 16 14"></polyline>
+  </svg>
+</button>
+
 <script src="/static/copy.js"></script>
 <script>
 // 滚动到视口时淡入，纯装饰，不支持时直接显示
@@ -402,6 +454,54 @@ if ('IntersectionObserver' in window) {
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 } else {
   document.querySelectorAll('.reveal').forEach((el) => el.classList.add('visible'));
+}
+
+// ── 移动端菜单 ──────────────────────────────────────────
+function toggleMobileNav() {
+  document.getElementById('mobileNav').classList.toggle('open');
+}
+function closeMobileNav() {
+  document.getElementById('mobileNav').classList.remove('open');
+}
+// 点击外部关闭菜单
+document.addEventListener('click', function(e) {
+  var nav = document.getElementById('mobileNav');
+  var toggle = document.querySelector('.menu-toggle');
+  if (nav && !nav.contains(e.target) && !toggle.contains(e.target)) {
+    nav.classList.remove('open');
+  }
+});
+
+// ── 返回顶部 ───────────────────────────────────────────
+var backToTopBtn = document.getElementById('backToTop');
+var scrollThreshold = 400;
+window.addEventListener('scroll', function() {
+  if (window.scrollY > scrollThreshold) {
+    backToTopBtn.classList.add('visible');
+  } else {
+    backToTopBtn.classList.remove('visible');
+  }
+}, { passive: true });
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── 导航高亮当前区块 ────────────────────────────────────
+var sections = document.querySelectorAll('section[id]');
+var navLinks = document.querySelectorAll('.topbar-link[href^="#"]');
+if ('IntersectionObserver' in window && sections.length) {
+  var navObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var id = entry.target.getAttribute('id');
+        navLinks.forEach(function(link) {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { rootMargin: '-40% 0px -55% 0px' });
+  sections.forEach(function(s) { navObserver.observe(s); });
 }
 </script>
 </body>

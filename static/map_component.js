@@ -16,6 +16,12 @@
 const GoGatherMap = (() => {
   const DAY_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char]));
+  }
+
   function dayColor(item) {
     const m = (item.time_range || '').match(/Day\s*(\d+)/i);
     const day = m ? parseInt(m[1]) : 1;
@@ -48,9 +54,9 @@ const GoGatherMap = (() => {
       <div class="map-location-item" data-idx="${idx}" style="padding:${s.pad};border-bottom:1px solid var(--border-light, rgba(0,0,0,0.06));cursor:pointer;display:flex;align-items:center;gap:${s.gap}px;">
         <span style="background:var(--primary, #6366f1);color:#fff;width:${s.badge}px;height:${s.badge}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${s.badgeFont}px;font-weight:bold;flex-shrink:0;">${idx + 1}</span>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:${s.title}px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.title || ''}</div>
-          <div style="font-size:${s.meta}px;color:var(--text-muted, #94a3b8);">${item.time_range || ''}</div>
-          ${showLocation && item.location ? `<div style="font-size:${s.loc}px;color:#cbd5e1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${item.location}</div>` : ''}
+          <div style="font-size:${s.title}px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
+          <div style="font-size:${s.meta}px;color:var(--text-muted, #94a3b8);">${escapeHtml(item.time_range)}</div>
+          ${showLocation && item.location ? `<div style="font-size:${s.loc}px;color:#cbd5e1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📍 ${escapeHtml(item.location)}</div>` : ''}
         </div>
       </div>`).join('');
   }
@@ -74,7 +80,7 @@ const GoGatherMap = (() => {
       attribution: '© 高德地图',
       maxZoom: 18,
     }).addTo(map);
-    setTimeout(() => map.invalidateSize(), 100);
+    const resizeTimer = setTimeout(() => map.invalidateSize(), 100);
 
     // 全屏查看入口：地图右上角悬浮按钮
     if (opts.fullscreenUrl) {
@@ -121,7 +127,7 @@ const GoGatherMap = (() => {
 
     points.forEach((item, idx) => {
       const marker = L.marker(disp[idx], { icon: numberIcon(idx + 1, dayColor(item)) }).addTo(map);
-      marker.bindPopup(`<b>${idx + 1}. ${item.title}</b><br>${item.time_range || ''}<br>${item.location || ''}`);
+      marker.bindPopup(`<b>${idx + 1}. ${escapeHtml(item.title)}</b><br>${escapeHtml(item.time_range)}<br>${escapeHtml(item.location)}`);
       markers.push(marker);
       markerList.push({ marker, item, idx, disp: disp[idx] });
     });
@@ -227,7 +233,9 @@ const GoGatherMap = (() => {
 
     function destroy() {
       stopAutoplay(false);
+      clearTimeout(resizeTimer);
       map.remove();
+      if (layout !== 'side' && listEl) listEl.remove();
     }
 
     return { map, markers, markerList, focus, play: startAutoplay, stop: () => stopAutoplay(false), destroy, listEl };

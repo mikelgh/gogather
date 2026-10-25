@@ -2623,6 +2623,10 @@
           <button class="verify-btn" id="verifyBtn" onclick="verifyPrices()">🔍 票价验价</button>
           <span class="verify-hint">重新查询方案中航班/车次的飞猪实时价（不修改方案）</span>
         </div>
+        <div class="verify-bar" style="margin-top: 8px;">
+          <button class="verify-btn" id="reverifyBtn" onclick="reverifyPrices()" style="background: linear-gradient(135deg, #10b981, #059669);">🔄 重新验价</button>
+          <span class="verify-hint">刷新所有酒店/餐厅/活动的飞猪价格（会更新方案）</span>
+        </div>
         <div id="verifyPanel" class="verify-panel hidden"></div>
       </div>
 
@@ -2767,12 +2771,82 @@ const state = {
   isSending: false,
   authMode: 'login',
   token: localStorage.getItem('juxing_token'),
-  user: JSON.parse(localStorage.getItem('juxing_user') || 'null'),
+  user: null, // 身份只信任 /api/me，不解析可能损坏或过期的缓存
   budgetTier: '舒适型',
   transportMode: 'auto',
   preferences: [],
   captchaConfig: null,
+  generation: 0,
+  activeRequest: null,
+  selecting: false,
 };
+
+// 每次新建/选择/注销都换代，A → B → A 也不能接收旧响应。
+function pageContext() {
+  return { generation: state.generation, token: state.token, planId: state.planId };
+}
+
+function isCurrent(ctx) {
+  return ctx.generation === state.generation && ctx.token === state.token && ctx.planId === state.planId;
+}
+
+function beginRequest() {
+  const request = pageContext();
+  state.activeRequest = request;
+  state.isSending = true;
+  document.getElementById('sendBtn').disabled = true;
+  return request;
+}
+
+function finishRequest(request) {
+  clearInterval(request?.timer);
+  if (!request || state.activeRequest !== request) return;
+  state.activeRequest = null;
+  state.isSending = false;
+  hideTypingIndicator();
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('revisionSendBtn').disabled = false;
+  const regenBtn = document.getElementById('regenBtn');
+  regenBtn.disabled = false;
+  regenBtn.textContent = '重新生成';
+  if (request?.outlineButton) {
+    request.outlineButton.disabled = false;
+    request.outlineButton.textContent = request.outlineLabel;
+  }
+  document.querySelectorAll('[aria-busy="true"]').forEach(el => el.removeAttribute('aria-busy'));
+}
+
+function invalidatePage() {
+  finishRequest(state.activeRequest);
+  state.generation++;
+  state.selecting = false;
+  state.pendingOutline = null;
+  state.pendingMessage = '';
+  document.querySelectorAll('.outline-actions, .outline-hint').forEach(el => el.remove());
+  closeRevisionHistory();
+}
+
+async function responseJSON(resp) {
+  if (resp.status === 429) throw new Error('请求过于频繁，请稍后重试');
+  if (resp.status === 503) throw new Error('服务暂时不可用，请稍后重试');
+  const isJSON = (resp.headers.get('content-type') || '').includes('application/json');
+  if (!resp.ok) {
+    const data = isJSON ? await resp.json() : null;
+    throw new Error(data?.detail || `请求失败（HTTP ${resp.status}），请稍后重试`);
+  }
+  if (!isJSON) throw new Error('服务返回格式异常，请重试');
+  const data = await resp.json();
+  if (!data || typeof data !== 'object') throw new Error('服务返回内容异常，请重试');
+  return data;
+}
+
+function consumeAuthReturn() {
+  const target = sessionStorage.getItem('juxing_return_to');
+  sessionStorage.removeItem('juxing_return_to');
+  if (target !== 'admin') return false;
+  window.location.assign('/admin');
+  return true;
+}
 
 // ── Auth ──────────────────────────────────────────────────
 async function loadPublicConfig() {
@@ -2789,39 +2863,47 @@ async function initAuth() {
   const urlUsername = urlParams.get('username');
   const returnTo = urlParams.get('return_to');
 
-  if (urlParams.get('auth_error')) {
-    showToast('GitHub 登录暂时不可用（服务器访问 GitHub 超时），请稍后重试或使用账号密码登录');
-    window.history.replaceState({}, document.title, window.location.pathname);
+  // 只允许站内 admin，跨 OAuth 跳转保留，并在成功登录后消费一次。
+  if (urlParams.has('return_to')) {
+    sessionStorage.removeItem('juxing_return_to');
+    if (returnTo === 'admin') sessionStorage.setItem('juxing_return_to', 'admin');
   }
-
+  if (urlParams.get('auth_error')) {
+    showToast('GitHub 登录暂时不可用，请稍后重试或使用账号密码登录');
+  }
   if (urlToken && urlUsername) {
     state.token = urlToken;
-    state.user = { id: '', username: urlUsername };
     localStorage.setItem('juxing_token', urlToken);
-    localStorage.setItem('juxing_user', JSON.stringify(state.user));
-    localStorage.setItem('juxing_username', urlUsername);
-    window.history.replaceState({}, document.title, window.location.pathname);
-    
-    // Redirect to admin page if requested
-    if (returnTo === 'admin') {
-      window.location.href = '/admin';
+  }
+  ['token', 'username', 'return_to', 'auth_error'].forEach(key => urlParams.delete(key));
+  const query = urlParams.toString();
+  window.history.replaceState({}, document.title, window.location.pathname + (query ? '?' + query : '') + window.location.hash);
+
+  const ctx = pageContext();
+  if (state.token) {
+    try {
+      const resp = await authFetch('/api/me');
+      const me = await responseJSON(resp);
+      if (!isCurrent(ctx)) return;
+      state.user = me;
+      localStorage.setItem('juxing_user', JSON.stringify(me));
+    } catch (err) {
+      if (isCurrent(ctx)) {
+        showToast('无法验证登录，请重试登录：' + err.message, 'error');
+        document.getElementById('authModal').classList.remove('hidden');
+      }
       return;
     }
-  }
-
-  // Check if already logged in and should redirect
-  const storedToken = localStorage.getItem('juxing_token');
-  const storedUser = JSON.parse(localStorage.getItem('juxing_user') || 'null');
-  
-  if (storedToken && storedUser && returnTo === 'admin') {
-    window.location.href = '/admin';
-    return;
+  } else {
+    localStorage.removeItem('juxing_user');
   }
 
   if (state.token && state.user) {
+    if (consumeAuthReturn()) return;
     document.getElementById('authModal').classList.add('hidden');
-    showUserMenu();
+    showUserMenu(false);
     await loadConversations();
+    if (!isCurrent(ctx)) return;
     await restorePlan();
     await loadPlanList();
     // 一次性的新手引导：每个浏览器只弹一次；从地图页带着 ?plan= 回来时直接看方案，不打扰
@@ -2834,12 +2916,17 @@ async function initAuth() {
 }
 
 async function loadConversations() {
+  const ctx = pageContext();
+  const conversation = state.conversation;
+  const messageCount = conversation.length;
   try {
     const resp = await fetch('/api/conversations', {
       headers: { 'Authorization': `Bearer ${state.token}` }
     });
     if (resp.ok) {
       const conversations = await resp.json();
+      if (!isCurrent(ctx) || state.isSending || state.conversation !== conversation ||
+          state.conversation.length !== messageCount) return;
       state.conversation = conversations;
       // 无条件重建消息区：同页切换账号时，空历史必须清掉上个账号的聊天 DOM，
       // 非空也必须从头回放而不是追加（否则两个账号的消息会混在一起）
@@ -2865,43 +2952,23 @@ async function restorePlan() {
   // 首页默认停在新建方案的对话态，不再自动打开最近一份方案
   const planId = new URLSearchParams(window.location.search).get('plan');
   if (!planId) return;
-  try {
-    const resp = await fetch(`/api/plan/${planId}`, {
-      headers: { 'Authorization': `Bearer ${state.token}` }
-    });
-    if (resp.ok) {
-      const plan = await resp.json();
-      state.planId = planId;
-      state.plan = plan;
-      state.structured = {
-        summary: plan.summary,
-        timeline: plan.timeline || [],
-        budget: plan.budget || [],
-        action_items: plan.action_items || [],
-        room_allocation: plan.room_allocation || [],
-        budget_per_person: plan.budget_per_person,
-        city: plan.params?.city || '',
-      };
-      state.extractedParams = plan.params || {};
-      localStorage.setItem('juxing_planId', planId);
-      history.replaceState(null, '', '/');
-      showPlan(plan, planId, state.structured);
-    } else {
-      localStorage.removeItem('juxing_planId');
-    }
-  } catch (e) {
-    console.error('Failed to restore plan:', e);
-  }
+  history.replaceState(null, '', '/');
+  await selectPlan(planId);
 }
 
 // ── Sidebar Plan List ────────────────────────────────────
+let planListVersion = 0;
 async function loadPlanList() {
+  if (!state.token) return;
+  const ctx = pageContext();
+  const version = ++planListVersion;
   try {
     const resp = await fetch('/api/plans', {
       headers: { 'Authorization': `Bearer ${state.token}` }
     });
     if (!resp.ok) return;
     const plans = await resp.json();
+    if (!isCurrent(ctx) || version !== planListVersion) return;
     const list = document.getElementById('planList');
     const titleEl = document.getElementById('sidebarTitle');
     if (titleEl) titleEl.textContent = `我的方案 (${plans.length})`;
@@ -2966,33 +3033,42 @@ async function deletePlan(event, planId) {
   }
 }
 
+function applyPlan(plan, planId) {
+  state.planId = planId;
+  state.plan = plan;
+  state.structured = {
+    summary: plan.summary,
+    timeline: plan.timeline || [],
+    budget: plan.budget || [],
+    action_items: plan.action_items || [],
+    room_allocation: plan.room_allocation || [],
+    budget_per_person: plan.budget_per_person,
+    city: plan.params?.city || '',
+  };
+  state.extractedParams = plan.params || {};
+  localStorage.setItem('juxing_planId', planId);
+  document.getElementById('shareResult').style.display = 'none';
+  showPlan(plan, planId, state.structured);
+}
+
 async function selectPlan(planId) {
+  invalidatePage();
+  state.selecting = true;
+  const ctx = pageContext();
   try {
-    const resp = await fetch(`/api/plan/${planId}`, {
-      headers: { 'Authorization': `Bearer ${state.token}` }
-    });
-    if (!resp.ok) return;
-    const plan = await resp.json();
-    state.planId = planId;
-    state.plan = plan;
-    state.structured = {
-      summary: plan.summary,
-      timeline: plan.timeline || [],
-      budget: plan.budget || [],
-      action_items: plan.action_items || [],
-      room_allocation: plan.room_allocation || [],
-      budget_per_person: plan.budget_per_person,
-      city: plan.params?.city || '',
-    };
-    state.extractedParams = plan.params || {};
-    localStorage.setItem('juxing_planId', planId);
-    showPlan(plan, planId, state.structured);
+    const resp = await authFetch(`/api/plan/${encodeURIComponent(planId)}`);
+    const plan = await responseJSON(resp);
+    if (!isCurrent(ctx)) return false;
+    applyPlan(plan, planId);
     loadPlanList();
-    // Close sidebar on mobile
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarOverlay').classList.remove('show');
+    return true;
   } catch (e) {
-    console.error('Failed to select plan:', e);
+    if (isCurrent(ctx)) showToast('打开方案失败：' + e.message, 'error');
+    return false;
+  } finally {
+    if (ctx.generation === state.generation) state.selecting = false;
   }
 }
 
@@ -3107,12 +3183,15 @@ async function doAuthSubmit(username, password, captchaVerifyParam) {
     // 登录/注册成功先重置界面：同页换账号时清掉上一账号可能残留的聊天/方案/地图
     startOver();
     showUserMenu();
+    if (consumeAuthReturn()) return true;
+    const ctx = pageContext();
     showToast(state.authMode === 'login' ? '登录成功' : '注册成功', 'success');
     // 会话/方案列表加载与新手引导不阻塞返回：验证码回调若等待过久，
     // SDK 会复位勾选框并保留弹窗，用户再点会触发第二次验证（重复会话会被风控拒绝）
     (async () => {
       try {
         await loadConversations();
+        if (!isCurrent(ctx)) return;
         await restorePlan();
         if (!window.tourCompleted() && state.planId === null) {
           setTimeout(() => window.startTour(), 600);
@@ -3201,18 +3280,19 @@ function renderUserIdentity() {
   el.textContent = parts.length ? '绑定：' + parts.join(' · ') : '账号密码注册';
 }
 
-function showUserMenu() {
+function showUserMenu(refresh = true) {
   document.getElementById('userMenuWrapper').style.display = 'block';
   const initial = (state.user.username || '?')[0].toUpperCase();
   document.getElementById('userAvatar').textContent = initial;
   document.getElementById('dropdownUsername').textContent = state.user.username;
   renderUserIdentity();
-  // OAuth 回跳只带 token/username，绑定状态需从 /api/me 刷新
-  if (state.token) {
-    fetch('/api/me', { headers: { Authorization: `Bearer ${state.token}` } })
+  // initAuth 已通过 /api/me 验证；密码登录/昵称更新后再刷新绑定状态。
+  if (refresh && state.token) {
+    const token = state.token;
+    authFetch('/api/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => {
-        if (!me) return;
+        if (!me || token !== state.token) return;
         state.user = { ...state.user, ...me };
         localStorage.setItem('juxing_user', JSON.stringify(state.user));
         renderUserIdentity();
@@ -3283,6 +3363,7 @@ function logout() {
   state.user = null;
   localStorage.removeItem('juxing_token');
   localStorage.removeItem('juxing_user');
+  localStorage.removeItem('juxing_username');
   document.getElementById('userMenuWrapper').style.display = 'none';
   document.getElementById('userDropdown').classList.add('hidden');
   // 彻底重置界面（聊天/方案/地图），防止下一个账号看到上一个账号的会话
@@ -3302,12 +3383,16 @@ function authHeaders() {
 }
 
 async function authFetch(url, options = {}) {
+  const token = state.token;
+  const generation = state.generation;
   options.headers = { ...options.headers, ...authHeaders() };
   const resp = await fetch(url, options);
   if (resp.status === 401) {
-    logout();
-    showToast(t('toast.loginExpired', '登录已过期，请重新登录'), 'error');
-    throw new Error('未授权');
+    if (token === state.token && generation === state.generation) {
+      logout();
+      showToast(t('toast.loginExpired', '登录已过期，请重新登录'), 'error');
+    }
+    throw new Error('未授权，请重新登录');
   }
   return resp;
 }
@@ -3357,13 +3442,16 @@ function switchPlanTab(tab) {
 }
 
 async function renderReminders() {
+  const ctx = pageContext();
   const container = document.getElementById('remindersList');
   if (!container) return;
   const failed = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">${t('error.reminderLoad', '提醒加载失败')}</div><div class="empty-state-hint">${t('error.reminderLoadHint', '可能是网络波动，点下面重试')}</div><button class="empty-state-btn" onclick="renderReminders()">${t('error.retry', '重试')}</button></div>`;
   try {
     const resp = await authFetch(`/api/plan/${state.planId}/reminders`);
+    if (!isCurrent(ctx)) return;
     if (!resp.ok) { container.innerHTML = failed; return; }
     const data = await resp.json();
+    if (!isCurrent(ctx)) return;
     const reminders = data.reminders || [];
     if (reminders.length === 0) {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-text">${t('empty.reminder', '暂无提醒')}</div><div class="empty-state-hint">${t('empty.reminderHint')}</div></div>`;
@@ -3383,13 +3471,16 @@ async function renderReminders() {
       </div>
     `;
   } catch (err) {
-    container.innerHTML = failed;
+    if (isCurrent(ctx)) container.innerHTML = failed;
   }
 }
 
 let planMapInstance = null; // 方案页地图实例
 
+let mapVersion = 0;
 async function renderMap() {
+  const ctx = pageContext();
+  const version = ++mapVersion;
   const container = document.getElementById('mapContainer');
   const layout = document.getElementById('mapSideLayout');
   if (!container || !layout) return;
@@ -3404,6 +3495,7 @@ async function renderMap() {
     const resp = await authFetch(`/api/plan/${state.planId}/map`);
     if (!resp.ok) return;
     const data = await resp.json();
+    if (!isCurrent(ctx) || version !== mapVersion) return;
     const timeline = data.timeline || [];
     const points = timeline.filter(t => t.lat && t.lng);
     if (points.length === 0) return;
@@ -3423,6 +3515,7 @@ async function renderMap() {
 }
 
 function startOver() {
+  invalidatePage();
   state.plan = null;
   state.planId = null;
   state.structured = {};
@@ -3598,16 +3691,17 @@ function showOutlineCard(outline, readonly = false) {
 }
 
 async function confirmOutline() {
-  if (!state.pendingOutline || state.isSending) return;
+  if (!state.pendingOutline || state.isSending || state.selecting) return;
+  const request = beginRequest();
   const btn = document.querySelector('.outline-confirm-btn');
+  request.outlineButton = btn;
+  request.outlineLabel = btn?.textContent;
   if (btn) { btn.disabled = true; btn.textContent = t('loading.generating', '正在生成方案…'); }
-  state.isSending = true;
-  document.getElementById('sendBtn').disabled = true;
   showTypingIndicator(t('loading.queryingPrice', '正在查询飞猪实时价格…'));
   const progressMessages = [t('loading.searchingHotel'), t('loading.searchingSpot'), t('loading.generating'), t('loading.computingBudget')];
   let progressIdx = 0;
-  const progressTimer = setInterval(() => {
-    if (progressIdx < progressMessages.length) {
+  request.timer = setInterval(() => {
+    if (isCurrent(request) && progressIdx < progressMessages.length) {
       updateTypingIndicator(progressMessages[progressIdx]);
       progressIdx++;
     }
@@ -3623,31 +3717,28 @@ async function confirmOutline() {
         conversation: state.conversation.slice(-6),
       }),
     });
-    clearInterval(progressTimer);
-    hideTypingIndicator();
-    const data = await resp.json();
-    if (data.type === 'plan_ready') {
+    const data = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (data.type === 'plan_ready' && data.plan && data.plan_id) {
       state.pendingOutline = null;
       state.plan = { ...data.plan, id: data.plan_id };
       state.structured = data.structured || {};
       state.planId = data.plan_id;
-      state.extractedParams = data.extracted_params;
+      state.extractedParams = data.extracted_params || {};
       localStorage.setItem('juxing_planId', data.plan_id);
       addMessage('assistant', '方案已生成！点击下方查看详细内容。');
       showToast('方案已生成', 'success');
       showPlan(data.plan, data.plan_id, data.structured);
       loadPlanList();
     } else {
-      addMessage('assistant', '方案生成失败，请重试');
+      throw new Error('方案生成返回异常，请点击确认按钮重试');
     }
   } catch (err) {
-    clearInterval(progressTimer);
-    hideTypingIndicator();
-    addMessage('assistant', '出错了，请重试：' + err.message);
-    showToast(t('toast.requestFailed', '请求失败，请检查网络后重试'), 'error');
+    if (!isCurrent(request)) return;
+    addMessage('assistant', escapeHtml('生成失败：' + err.message));
+    showToast(err.message, 'error');
   } finally {
-    state.isSending = false;
-    document.getElementById('sendBtn').disabled = false;
+    finishRequest(request);
   }
 }
 
@@ -3695,7 +3786,7 @@ function togglePreference(pref) {
 }
 
 async function sendMessage() {
-  if (state.isSending) return;
+  if (state.isSending || state.selecting) return;
   const input = document.getElementById('chatInput');
   const message = input.value.trim();
   if (!message) {
@@ -3722,9 +3813,7 @@ async function sendMessage() {
   addMessage('user', message, msgParams);
   applyLayoutState();
   
-  state.isSending = true;
-  const sendBtn = document.getElementById('sendBtn');
-  sendBtn.disabled = true;
+  const request = beginRequest();
   
   state.conversation.push({ role: 'user', content: message });
   showTypingIndicator(t('loading.analyzing', '正在分析需求…'));
@@ -3738,8 +3827,8 @@ async function sendMessage() {
     t('loading.computingBudget'),
   ];
   let progressIdx = 0;
-  const progressTimer = setInterval(() => {
-    if (progressIdx < progressMessages.length) {
+  request.timer = setInterval(() => {
+    if (isCurrent(request) && progressIdx < progressMessages.length) {
       updateTypingIndicator(progressMessages[progressIdx]);
       progressIdx++;
     }
@@ -3759,11 +3848,9 @@ async function sendMessage() {
       }),
     });
     
-    clearInterval(progressTimer);
-    hideTypingIndicator();
-    const data = await resp.json();
-    
-    if (data.type === 'follow_up') {
+    const data = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (data.type === 'follow_up' && typeof data.message === 'string') {
       state.extractedParams = { ...state.extractedParams, ...data.extracted_params };
       addMessage('assistant', data.message, data.extracted_params);
       state.conversation.push({ role: 'assistant', content: data.message });
@@ -3774,38 +3861,39 @@ async function sendMessage() {
       } else if (data.transport_suggested === 'train' || data.transport_suggested === 'flight') {
         selectTransportMode(data.transport_suggested);
       }
-    } else if (data.type === 'plan_ready') {
+    } else if (data.type === 'plan_ready' && data.plan && data.plan_id) {
       state.plan = { ...data.plan, id: data.plan_id };
       state.structured = data.structured || {};
       state.planId = data.plan_id;
-      state.extractedParams = data.extracted_params;
+      state.extractedParams = data.extracted_params || {};
       localStorage.setItem('juxing_planId', data.plan_id);
       addMessage('assistant', '方案已生成！点击下方查看详细内容。');
       showToast('方案已生成', 'success');
       showPlan(data.plan, data.plan_id, data.structured);
       loadPlanList();
-    } else if (data.type === 'outline_proposal') {
+    } else if (data.type === 'outline_proposal' && data.outline) {
+      document.querySelectorAll('.outline-actions, .outline-hint').forEach(el => el.remove());
       state.extractedParams = { ...state.extractedParams, ...data.extracted_params };
       state.pendingOutline = data.outline;
       state.pendingMessage = message;
       state.conversation.push({ role: 'assistant', content: data.message });
       showOutlineCard(data.outline);
+    } else {
+      throw new Error('服务返回了无法识别的响应，请重新发送或稍后重试');
     }
   } catch (err) {
-    clearInterval(progressTimer);
-    hideTypingIndicator();
-    addMessage('assistant', '出错了，请重试：' + err.message);
-    showToast('请求失败', 'error');
+    if (!isCurrent(request)) return;
+    if (!input.value) { input.value = message; autoResize(input); }
+    addMessage('assistant', escapeHtml('请求失败：' + err.message));
+    showToast(err.message, 'error');
   } finally {
-    state.isSending = false;
-    sendBtn.disabled = false;
+    finishRequest(request);
   }
 }
 
 // ── Plan Display ──────────────────────────────────────────
 function showPlan(plan, planId, structured = {}) {
-  document.getElementById('chatView').classList.add('hidden');
-  document.getElementById('planView').classList.add('active');
+  switchView('chat');
   // 进入方案页总是从顶部开始（滚动容器残留聊天区位置 + 浏览器刷新恢复都会拉到底部）
   const scroller = document.querySelector('.main-content');
   if (scroller) scroller.scrollTop = 0;
@@ -3844,7 +3932,8 @@ function showPlan(plan, planId, structured = {}) {
   renderTimeline(structured);
   renderBudget(structured);
   renderTasks(structured);
-  if (planId) setTimeout(() => renderMap(), 200);
+  const ctx = pageContext();
+  if (planId) setTimeout(() => { if (isCurrent(ctx)) renderMap(); }, 200);
 }
 
 function renderTimeline(structured) {
@@ -3859,9 +3948,36 @@ function renderTimeline(structured) {
   container.innerHTML = timeline.map((item, i) => {
     const priceText = item.price || '';
     const isPlaceholder = priceText.includes('点击预订') || priceText.includes('实时价格');
+
+    // 生成预订链接：优先使用具体链接，否则生成通用飞猪搜索链接
+    let bookingUrl = item.booking_link || null;
+    if (isPlaceholder && !bookingUrl) {
+      const title = (item.title || '').toLowerCase();
+      const location = (item.location || '');
+      if (title.includes('酒店') || title.includes('住宿') || title.includes('入住')) {
+        const cityMatch = location.match(/^(.+?)[市区县]/);
+        const city = cityMatch ? cityMatch[1] : location.split('→').pop().split('、')[0].trim();
+        if (city) {
+          bookingUrl = `https://www.fliggy.com/hotels/list?cityName=${encodeURIComponent(city)}&keyword=${encodeURIComponent(city)}`;
+        }
+      } else if (title.includes('高铁') || title.includes('飞机') || title.includes('交通') || title.includes('返程') || title.includes('接驳')) {
+        bookingUrl = 'https://www.fliggy.com/transport';
+      } else if (title.includes('门票') || title.includes('景点') || title.includes('活动') || title.includes('寻宝') || title.includes('游览')) {
+        bookingUrl = 'https://www.fliggy.com/activities';
+      } else if (title.includes('餐') || title.includes('午餐') || title.includes('晚餐') || title.includes('早餐') || title.includes('聚餐')) {
+        const cityMatch = location.match(/^(.+?)[市区县]/);
+        const city = cityMatch ? cityMatch[1] : location.split('→').pop().split('、')[0].trim();
+        if (city) {
+          bookingUrl = `https://www.fliggy.com/activities?keyword=${encodeURIComponent(city + '美食')}`;
+        }
+      } else {
+        bookingUrl = 'https://www.fliggy.com';
+      }
+    }
+
     const priceHtml = priceText ?
-      (isPlaceholder && item.booking_link ?
-        `<a class="timeline-price timeline-price-link" href="${item.booking_link}" target="_blank" rel="noopener">${priceText}</a>` :
+      (isPlaceholder && bookingUrl ?
+        `<a class="timeline-price timeline-price-link" href="${bookingUrl}" target="_blank" rel="noopener">${priceText}</a>` :
         `<span class="timeline-price">${priceText}</span>`) :
       '';
 
@@ -3877,7 +3993,7 @@ function renderTimeline(structured) {
         ${renderTimelineImage(item)}
         <p>${item.notes || ''}</p>
         ${item.location ? `<div class="location">${item.location}</div>` : ''}
-        ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener"> 飞猪预订/验价</a>` : ''}
+        ${bookingUrl && !isPlaceholder ? `<a class="booking-link" href="${bookingUrl}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
         ${recHtml}
       </div>
     </div>
@@ -4023,8 +4139,62 @@ async function verifyPrices() {
     showToast(e.message || '验价失败，请稍后重试', 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '🔍 票价验价';
+    btn.textContent = ' 票价验价';
   }
+}
+
+async function reverifyPrices() {
+  const planId = state.plan && state.plan.id;
+  if (!planId) return;
+  const btn = document.getElementById('reverifyBtn');
+  if (!confirm('重新验价会刷新所有酒店/餐厅/活动的飞猪价格，并更新方案。继续吗？')) return;
+  btn.disabled = true;
+  btn.textContent = ' 刷新中…';
+  try {
+    const resp = await authFetch(`/api/plan/${planId}/reverify`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '重新验价失败');
+    showToast(data.message || '重新验价已启动', 'info');
+    // 轮询状态
+    pollReverifyStatus(planId);
+  } catch (e) {
+    showToast(e.message || '重新验价失败，请稍后重试', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 重新验价';
+  }
+}
+
+async function pollReverifyStatus(planId) {
+  const maxAttempts = 60; // 最多轮询 60 次（约 2 分钟）
+  let attempts = 0;
+  const poll = async () => {
+    attempts++;
+    if (attempts > maxAttempts) {
+      showToast('重新验价超时，请刷新页面查看结果', 'warn');
+      return;
+    }
+    try {
+      const resp = await authFetch(`/api/plan/${planId}/reverify/status`);
+      const data = await resp.json();
+      if (data.status === 'completed') {
+        state.plan = data.plan;
+        renderPlan(data.plan);
+        showToast('价格已刷新', 'success');
+        return;
+      } else if (data.status === 'failed') {
+        showToast(`重新验价失败：${data.error || '未知错误'}`, 'error');
+        return;
+      } else if (data.status === 'processing') {
+        // 继续轮询
+        setTimeout(poll, 2000);
+      }
+    } catch (e) {
+      console.error('Poll error:', e);
+      setTimeout(poll, 3000);
+    }
+  };
+  setTimeout(poll, 2000);
 }
 
 const VERIFY_STATUS_LABEL = {
@@ -4133,33 +4303,43 @@ function renderTasks(structured) {
   `).join('');
 }
 
-function toggleTaskStatus(el, taskId) {
+async function toggleTaskStatus(el, taskId) {
+  if (!state.planId || state.isSending || state.selecting) return;
+  const item = state.structured.action_items?.find(item => item.id === taskId);
+  if (!item) return;
   const statuses = ['pending', 'booking', 'confirmed', 'completed'];
-  const current = statuses.find(s => el.classList.contains(`status-${s}`)) || 'pending';
-  const next = statuses[(statuses.indexOf(current) + 1) % statuses.length];
-  
-  el.classList.remove(...statuses.map(s => `status-${s}`));
-  el.classList.add(`status-${next}`);
-  el.classList.add('status-changed');
-  setTimeout(() => el.classList.remove('status-changed'), 300);
-  
-  const statusLabels = { pending: '待处理', booking: '预订中', confirmed: '已确认', completed: '已完成' };
-  showToast(`${statusLabels[next]}`, 'default');
-  
-  if (state.planId) {
-    authFetch(`/api/plan/${state.planId}/task/${taskId}`, {
+  const next = statuses[(statuses.indexOf(item.status || 'pending') + 1) % statuses.length];
+  // 同一方案的写请求串行；不乐观修改，失败时 DOM 和 state 均保持原状。
+  const request = beginRequest();
+  el.setAttribute('aria-busy', 'true');
+  try {
+    const resp = await authFetch(`/api/plan/${request.planId}/task/${encodeURIComponent(taskId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: next }),
-    }).catch(() => {});
+    });
+    const plan = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (!Array.isArray(plan.action_items)) throw new Error('服务返回异常，请重试');
+    state.plan = plan;
+    state.structured.action_items = plan.action_items;
+    renderExecution(); // 同步策划待办、实施待办、下一步及进度，不另发读取请求
+    showToast('待办状态已保存', 'success');
+  } catch (err) {
+    if (isCurrent(request)) showToast('保存失败：' + err.message, 'error');
+  } finally {
+    finishRequest(request);
   }
-  
-  updateProgress();
 }
 
 // ── Execution View ────────────────────────────────────────
 function renderExecution() {
-  if (!state.plan) return;
+  if (!state.plan) {
+    document.getElementById('executionContent').innerHTML = '<div class="empty-state">还没有可选的方案，请先到策划页生成方案</div>';
+    document.getElementById('nextActionsSection').style.display = 'none';
+    updateProgress();
+    return;
+  }
   
   // Render tasks directly into executionContent
   const structured = state.structured || {};
@@ -4200,21 +4380,15 @@ function renderNextActions() {
 }
 
 function updateProgress() {
-  const container = state.currentView === 'execution' 
-    ? document.getElementById('executionContent')
-    : document.getElementById('tasksContent');
-  const items = container ? container.querySelectorAll('.checklist-item') : [];
+  const items = state.structured.action_items || [];
   const total = items.length;
-  if (total === 0) return;
-  
   let confirmed = 0, booking = 0, pending = 0;
   items.forEach(item => {
-    if (item.classList.contains('status-confirmed') || item.classList.contains('status-completed')) confirmed++;
-    else if (item.classList.contains('status-booking')) booking++;
+    if (item.status === 'confirmed' || item.status === 'completed') confirmed++;
+    else if (item.status === 'booking') booking++;
     else pending++;
   });
-  
-  const percent = Math.round((confirmed / total) * 100);
+  const percent = total ? Math.round((confirmed / total) * 100) : 0;
   document.getElementById('progressPercent').textContent = `${percent}%`;
   document.getElementById('progressFill').style.width = `${percent}%`;
   document.getElementById('progressStats').innerHTML = `
@@ -4226,17 +4400,18 @@ function updateProgress() {
 
 // ── Share ─────────────────────────────────────────────────
 async function regeneratePlan() {
-  if (!state.planId || state.isSending) return;
+  if (!state.planId || state.isSending || state.selecting) return;
   if (!confirm('将按原输入条件重新生成一份新方案（约 1-3 分钟），当前方案会保留在列表中。继续吗？')) return;
-  state.isSending = true;
+  const request = beginRequest();
   const btn = document.getElementById('regenBtn');
   btn.disabled = true;
   btn.textContent = t('plan.regenerating', '正在重新生成…');
   showToast(t('plan.regenerateToast', '正在按原条件重新生成方案…'), 'default');
   try {
-    const resp = await authFetch(`/api/plan/${state.planId}/regenerate`, { method: 'POST' });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || '重新生成失败');
+    const resp = await authFetch(`/api/plan/${request.planId}/regenerate`, { method: 'POST' });
+    const data = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (data.type !== 'plan_ready' || !data.plan || !data.plan_id) throw new Error('生成结果异常，请重试');
     state.plan = { ...data.plan, id: data.plan_id };
     state.structured = data.structured || {};
     state.planId = data.plan_id;
@@ -4247,11 +4422,9 @@ async function regeneratePlan() {
     showPlan(data.plan, data.plan_id, data.structured);
     loadPlanList();
   } catch (err) {
-    showToast('重新生成失败：' + err.message, 'error');
+    if (isCurrent(request)) showToast('重新生成失败：' + err.message, 'error');
   } finally {
-    state.isSending = false;
-    btn.disabled = false;
-    btn.textContent = '重新生成';
+    finishRequest(request);
   }
 }
 
@@ -4288,34 +4461,40 @@ function quickRevision(text) {
 }
 
 async function sendRevision() {
-  if (!state.planId) return;
+  if (!state.planId || state.isSending || state.selecting) return;
   const input = document.getElementById('revisionInput');
   const message = input.value.trim();
   if (!message) return;
 
+  const request = beginRequest();
   const btn = document.getElementById('revisionSendBtn');
   btn.disabled = true;
   input.value = '';
   input.style.height = 'auto';
 
   try {
-    const resp = await authFetch(`/api/plan/${state.planId}/revise`, {
+    const resp = await authFetch(`/api/plan/${request.planId}/revise`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     });
 
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || '修改失败');
-
-    state.structured = data.structured;
+    const data = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (data.type !== 'revised' || data.plan_id !== request.planId || !data.structured) {
+      throw new Error('修改结果异常，请重试');
+    }
+    state.structured = { ...state.structured, ...data.structured };
     state.plan = { ...state.plan, ...data.structured };
-    showPlan(state.plan, state.planId, data.structured);
+    showPlan(state.plan, request.planId, state.structured);
+    renderExecution();
     showToast('方案已修改', 'success');
   } catch (err) {
+    if (!isCurrent(request)) return;
+    if (!input.value) { input.value = message; autoResize(input); }
     showToast('修改失败：' + err.message, 'error');
   } finally {
-    btn.disabled = false;
+    finishRequest(request);
   }
 }
 
@@ -4340,6 +4519,7 @@ async function showRevisionHistory() {
     return;
   }
   
+  const ctx = pageContext();
   const modal = document.getElementById('revisionModal');
   const list = document.getElementById('revisionList');
   
@@ -4351,7 +4531,7 @@ async function showRevisionHistory() {
     if (!resp.ok) throw new Error('加载失败');
     
     const revisions = await resp.json();
-    
+    if (!isCurrent(ctx) || modal.classList.contains('hidden')) return;
     if (revisions.length === 0) {
       list.innerHTML = `<div class="revision-empty">${t('empty.revisions', '暂无修订记录')}<small>${t('empty.revisionsHint', '每次调整方案后，这里会保留旧版本，随时可以回滚')}</small></div>`;
       return;
@@ -4372,6 +4552,7 @@ async function showRevisionHistory() {
       </div>
     `).join('');
   } catch (e) {
+    if (!isCurrent(ctx)) return;
     list.innerHTML = '<div class="revision-empty"><div>加载失败</div><button class="revision-rollback-btn" style="margin-top:12px;" onclick="showRevisionHistory()">重试</button></div>';
   }
 }
@@ -4381,31 +4562,25 @@ function closeRevisionHistory() {
 }
 
 async function rollbackToRevision(revisionId, revisionNumber) {
-  if (!confirm(`确定要回滚到版本 ${revisionNumber} 吗？当前方案将被覆盖。`)) {
-    return;
-  }
-  
+  if (!state.planId || state.isSending || state.selecting) return;
+  if (!confirm(`确定要回滚到版本 ${revisionNumber} 吗？当前方案将被覆盖。`)) return;
+  const request = beginRequest();
   try {
-    const resp = await authFetch(`/api/plan/${state.planId}/rollback/${revisionId}`, {
+    const resp = await authFetch(`/api/plan/${request.planId}/rollback/${revisionId}`, {
       method: 'POST',
     });
-    
-    if (!resp.ok) {
-      const error = await resp.json();
-      throw new Error(error.detail || '回滚失败');
-    }
-    
-    const result = await resp.json();
-    showToast(result.message, 'success');
-    
-    // Reload the plan
-    if (state.planId) {
-      await loadPlan(state.planId);
-    }
-    
+    const result = await responseJSON(resp);
+    if (!isCurrent(request)) return;
+    if (!result.plan || result.plan.id !== request.planId) throw new Error('回滚结果异常，请重试');
+    applyPlan(result.plan, request.planId);
+    renderExecution();
     closeRevisionHistory();
+    showToast(result.message || '方案已回滚', 'success');
+    loadPlanList();
   } catch (e) {
-    showToast(e.message, 'error');
+    if (isCurrent(request)) showToast(e.message, 'error');
+  } finally {
+    finishRequest(request);
   }
 }
 

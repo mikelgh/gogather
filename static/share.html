@@ -304,6 +304,23 @@
   font-weight: 700;
 }
 
+.budget-card .amount.placeholder-cost {
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.budget-card .amount.placeholder-cost:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.budget-card a.amount {
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
 .budget-card .unit {
   font-size: 11px;
   color: var(--text-secondary);
@@ -540,7 +557,27 @@
 
 <script src="/static/copy.js"></script>
 <script>
-const code = window.location.pathname.split('/').pop();
+const code = encodeURIComponent(window.location.pathname.split('/').pop());
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[char]));
+}
+
+function safeUrl(value) {
+  if (typeof value !== 'string') return '';
+  const url = value.trim();
+  if (!url || /[\u0000-\u001f\u007f]/.test(url)) return '';
+  try {
+    const parsed = new URL(url, window.location.href);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    if (!/^https?:\/\//i.test(url) && parsed.origin !== window.location.origin) return '';
+    return url;
+  } catch {
+    return '';
+  }
+}
 
 async function loadSharedPlan() {
   const controller = new AbortController();
@@ -558,7 +595,7 @@ async function loadSharedPlan() {
     document.getElementById('app').innerHTML = `
       <div class="error-state">
         <h2>${isTimeout ? '加载超时' : '方案不存在'}</h2>
-        <p>${msg}</p>
+        <p>${escapeHtml(msg)}</p>
         <button onclick="location.reload()" style="margin-top:16px;padding:8px 24px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);cursor:pointer;font-size:14px;">重试</button>
       </div>
     `;
@@ -570,16 +607,19 @@ function renderRestaurantRec(item, index) {
   const isMeal = /午餐|晚餐|早餐|聚餐|用餐/.test((item.title || '') + (item.notes || ''));
   if (!isMeal || item.booking_link) return '';
   if (item.restaurant_options && item.restaurant_options.length > 0) {
-    const opts = item.restaurant_options.map(o => `
+    const opts = item.restaurant_options.map(o => {
+      const url = safeUrl(o.url);
+      return `
       <div class="restaurant-option">
-        <div class="restaurant-name">${o.name}</div>
-        ${o.highlights ? `<div class="restaurant-highlights">${o.highlights}</div>` : ''}
-        <a class="booking-link" href="${o.url}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>
-      </div>`).join('');
+        <div class="restaurant-name">${escapeHtml(o.name)}</div>
+        ${o.highlights ? `<div class="restaurant-highlights">${escapeHtml(o.highlights)}</div>` : ''}
+        ${url ? `<a class="booking-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
+      </div>`;
+    }).join('');
     return `<div class="restaurant-options">${opts}</div>`;
   }
   if (item.restaurant_options_note) {
-    return `<div class="restaurant-note">${item.restaurant_options_note}</div>`;
+    return `<div class="restaurant-note">${escapeHtml(item.restaurant_options_note)}</div>`;
   }
   return `<button class="restaurant-rec-btn" onclick="fetchRestaurantRec(${index}, this)">🔍 查找附近餐厅</button>`;
 }
@@ -636,8 +676,9 @@ async function renderShareMap() {
 
 function renderTimelineImage(item) {
   // 如果有真实图片，显示图片
-  if (item.image) {
-    return `<img class="timeline-image" src="${item.image}" alt="${item.title || ''}" loading="lazy" onerror="this.style.display='none'">`;
+  const url = safeUrl(item.image);
+  if (url) {
+    return `<img class="timeline-image" src="${escapeHtml(url)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.style.display='none'">`;
   }
   return '';
 }
@@ -675,6 +716,14 @@ function renderPlan(plan) {
   const budget = plan.budget || [];
   const actionItems = plan.action_items || [];
 
+  // 创建 action_item_id 到 booking_link 的映射，供预算区使用
+  const bookingLinkMap = {};
+  timeline.forEach(item => {
+    if (item.action_item_id && item.booking_link) {
+      bookingLinkMap[item.action_item_id] = item.booking_link;
+    }
+  });
+
   const checkIn = plan.params?.check_in || '';
   const checkOut = plan.params?.check_out || '';
   const dateRange = checkIn && checkOut ? `${checkIn.slice(5)} ~ ${checkOut.slice(5)}` : '';
@@ -700,10 +749,10 @@ function renderPlan(plan) {
 
   let html = `
     <div class="plan-header" style="position: relative; border-radius: 16px; margin-bottom: 24px; overflow: hidden;">
-      <img class="share-cover-img" src="/share/${code}/cover.png" alt="${title}">
+      <img class="share-cover-img" src="${escapeHtml(`/share/${code}/cover.png`)}" alt="${escapeHtml(title)}">
       <span class="plan-badge" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.95); color: var(--primary); padding: 6px 14px; border-radius: 12px; font-size: 12px; font-weight: 600;">已生成</span>
     </div>
-    <p class="plan-meta">方案生成于 ${fmtTime(generatedRaw) || '—'} · 飞猪价格获取于 ${fmtTime(capturedRaw) || '—'}（参考价，预订前请以实时报价为准）</p>
+    <p class="plan-meta">方案生成于 ${escapeHtml(fmtTime(generatedRaw)) || '—'} · 飞猪价格获取于 ${escapeHtml(fmtTime(capturedRaw)) || '—'}（参考价，预订前请以实时报价为准）</p>
   `;
 
   if (timeline.length > 0) {
@@ -720,18 +769,55 @@ function renderPlan(plan) {
             <div id="shareMapLocationList"></div>
           </div>
         </div>
-        ${timeline.map((item, i) => `
+        ${timeline.map((item, i) => {
+          // 生成预订链接：优先使用具体链接，否则生成通用飞猪搜索链接
+          let bookingUrl = item.booking_link || null;
+          const priceText = item.price || '';
+          const isPlaceholder = priceText.includes('点击预订') || priceText.includes('实时价格');
+          if (isPlaceholder && !bookingUrl) {
+            const title = (item.title || '').toLowerCase();
+            const location = (item.location || '');
+            if (title.includes('酒店') || title.includes('住宿') || title.includes('入住')) {
+              const cityMatch = location.match(/^(.+?)[市区县]/);
+              const city = cityMatch ? cityMatch[1] : location.split('→').pop().split('、')[0].trim();
+              if (city) {
+                bookingUrl = `https://www.fliggy.com/hotels/list?cityName=${encodeURIComponent(city)}&keyword=${encodeURIComponent(city)}`;
+              }
+            } else if (title.includes('高铁') || title.includes('飞机') || title.includes('交通') || title.includes('返程') || title.includes('接驳')) {
+              bookingUrl = 'https://www.fliggy.com/transport';
+            } else if (title.includes('门票') || title.includes('景点') || title.includes('活动') || title.includes('寻宝') || title.includes('游览')) {
+              bookingUrl = 'https://www.fliggy.com/activities';
+            } else if (title.includes('餐') || title.includes('午餐') || title.includes('晚餐') || title.includes('早餐') || title.includes('聚餐')) {
+              // 餐饮类：搜索目的地美食
+              const cityMatch = location.match(/^(.+?)[市区县]/);
+              const city = cityMatch ? cityMatch[1] : location.split('→').pop().split('、')[0].trim();
+              if (city) {
+                bookingUrl = `https://www.fliggy.com/activities?keyword=${encodeURIComponent(city + '美食')}`;
+              }
+            } else {
+              // 通用兜底：飞猪首页
+              bookingUrl = 'https://www.fliggy.com';
+            }
+          }
+          const safeBookingUrl = safeUrl(bookingUrl);
+          const priceHtml = priceText ?
+            (isPlaceholder && safeBookingUrl ?
+              `<a class="timeline-price timeline-price-link" href="${escapeHtml(safeBookingUrl)}" target="_blank" rel="noopener">${escapeHtml(priceText)}</a>` :
+              `<span class="timeline-price">${escapeHtml(priceText)}</span>`) :
+            '';
+          return `
           <div class="timeline-item">
-            <div class="timeline-time">${item.time_range || ''}</div>
+            <div class="timeline-time">${escapeHtml(item.time_range)}</div>
             <div class="timeline-content">
-              <h4>${getCategoryIcon(item)} ${item.title || ''}${item.price ? `<span class="timeline-price">${item.price}</span>` : ''}</h4>
+              <h4>${getCategoryIcon(item)} ${escapeHtml(item.title)}${priceHtml}</h4>
               ${renderTimelineImage(item)}
-              ${item.notes ? `<p>${item.notes}</p>` : ''}
-              ${item.booking_link ? `<a class="booking-link" href="${item.booking_link}" target="_blank" rel="noopener"> 飞猪预订/验价</a>` : ''}
+              ${item.notes ? `<p>${escapeHtml(item.notes)}</p>` : ''}
+              ${safeBookingUrl && !isPlaceholder ? `<a class="booking-link" href="${escapeHtml(safeBookingUrl)}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
               ${renderRestaurantRec(item, i)}
             </div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     `;
   }
@@ -741,20 +827,44 @@ function renderPlan(plan) {
       <div class="section">
         <div class="section-title">预算概览</div>
         <div class="budget-grid">
-          ${budget.filter(item => !item.is_per_person).map(item => `
+          ${budget.filter(item => !item.is_per_person).map(item => {
+            const bookingUrl = item.action_item_id ? bookingLinkMap[item.action_item_id] : null;
+            const safeBookingUrl = safeUrl(bookingUrl);
+            const isPlaceholder = item.estimated_cost && item.estimated_cost.includes('点击预订链接');
+            // 如果没有具体预订链接，生成通用飞猪搜索链接
+            let fallbackUrl = null;
+            if (isPlaceholder && !safeBookingUrl) {
+              const category = item.category || '';
+              if (category.includes('住宿') || category.includes('酒店')) {
+                // 提取城市名（如"杭州住宿"->"杭州"）
+                const cityMatch = category.match(/^(.+?)(?:住宿 | 酒店)/);
+                const city = cityMatch ? cityMatch[1] : '';
+                if (city) {
+                  fallbackUrl = `https://www.fliggy.com/hotels/list?cityName=${encodeURIComponent(city)}&keyword=${encodeURIComponent(city)}`;
+                }
+              } else if (category.includes('交通') || category.includes('高铁') || category.includes('飞机')) {
+                fallbackUrl = 'https://www.fliggy.com/transport';
+              }
+            }
+            const finalUrl = safeBookingUrl || fallbackUrl;
+            return `
             <div class="budget-card">
-              <div class="category">${item.category}</div>
-              <div class="amount">${item.estimated_cost || '--'}</div>
-              ${item.description ? `<div class="budget-desc">${item.description}</div>` : ''}
+              <div class="category">${escapeHtml(item.category)}</div>
+              ${finalUrl
+                ? `<a class="amount ${isPlaceholder ? 'placeholder-cost' : ''}" href="${escapeHtml(finalUrl)}" target="_blank" rel="noopener">${escapeHtml(item.estimated_cost || '查看价格')}</a>`
+                : `<div class="amount ${isPlaceholder ? 'placeholder-cost' : ''}">${escapeHtml(item.estimated_cost || '--')}</div>`
+              }
+              ${item.description ? `<div class="budget-desc">${escapeHtml(item.description)}</div>` : ''}
+              ${finalUrl && !isPlaceholder ? `<a class="booking-link" href="${escapeHtml(finalUrl)}" target="_blank" rel="noopener">🔗 飞猪预订/验价</a>` : ''}
               <div class="unit">总计</div>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
         ${plan.budget_per_person ? `
           <div class="budget-total">
             <div class="label">人均预算</div>
-            <div class="amount">${plan.budget_per_person}</div>
-            ${capturedRaw ? `<div class="budget-captured-at">价格数据获取于 ${fmtTime(capturedRaw)} · 为查询时点参考价</div>` : ''}
+            <div class="amount">${escapeHtml(plan.budget_per_person)}</div>
+            ${capturedRaw ? `<div class="budget-captured-at">价格数据获取于 ${escapeHtml(fmtTime(capturedRaw))} · 为查询时点参考价</div>` : ''}
           </div>
         ` : ''}
       </div>
@@ -762,8 +872,9 @@ function renderPlan(plan) {
   }
 
   if (actionItems.length > 0) {
-    const groups = { hotel: '住宿', transport: '交通', activity: '活动', restaurant: '餐饮' };
-    const grouped = {};
+    const groups = Object.assign(Object.create(null), { hotel: '住宿', transport: '交通', activity: '活动', restaurant: '餐饮' });
+    const statuses = Object.assign(Object.create(null), { pending: 'pending', booking: 'booking', confirmed: 'confirmed', completed: 'completed' });
+    const grouped = Object.create(null);
     actionItems.forEach(item => {
       if (!grouped[item.type]) grouped[item.type] = [];
       grouped[item.type].push(item);
@@ -771,15 +882,15 @@ function renderPlan(plan) {
 
     html += `<div class="section"><div class="section-title">待办清单</div>`;
     for (const [type, items] of Object.entries(grouped)) {
-      html += `<div class="checklist-group-title">${groups[type] || type}</div>`;
+      html += `<div class="checklist-group-title">${escapeHtml(groups[type] || type)}</div>`;
       html += items.map(item => `
         <div class="checklist-item">
-          <div class="checklist-status ${item.status || 'pending'}"></div>
+          <div class="checklist-status ${statuses[item.status] || 'pending'}"></div>
           <div class="checklist-body">
-            <div class="checklist-title">${item.title || ''}</div>
-            ${item.description ? `<div class="checklist-desc">${item.description}</div>` : ''}
+            <div class="checklist-title">${escapeHtml(item.title)}</div>
+            ${item.description ? `<div class="checklist-desc">${escapeHtml(item.description)}</div>` : ''}
             <div class="checklist-meta">
-              ${item.estimated_cost ? `<span class="checklist-tag price">${item.estimated_cost}</span>` : ''}
+              ${item.estimated_cost ? `<span class="checklist-tag price">${escapeHtml(item.estimated_cost)}</span>` : ''}
             </div>
           </div>
         </div>
@@ -826,8 +937,8 @@ async function renderShareReminders() {
         <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">共${reminders.length}项提醒</div>
         ${reminders.map(r => `
           <div style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 8px;">
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${r.time}</div>
-            <div style="font-size: 14px; font-weight: 500;">${r.title}</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${escapeHtml(r.time)}</div>
+            <div style="font-size: 14px; font-weight: 500;">${escapeHtml(r.title)}</div>
           </div>
         `).join('')}
       </div>

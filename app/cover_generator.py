@@ -214,6 +214,7 @@ def extract_primary_city(city: str) -> str:
     例如：
     - "成都 + 九寨沟 + 乐山" -> "成都"
     - "广州→成都" -> "成都"
+    - "杭州、苏州、黄山" -> "杭州"
     - "成都" -> "成都"
     """
     if not city:
@@ -231,6 +232,10 @@ def extract_primary_city(city: str) -> str:
     # 处理 "城市 A-城市 B" 格式
     if "-" in city and len(city) > 10:
         return city.split("-")[0].strip()
+    
+    # 处理 "城市 A、城市 B、城市 C" 格式（中文顿号分隔）
+    if "、" in city:
+        return city.split("、")[0].strip()
     
     return city.strip()
 

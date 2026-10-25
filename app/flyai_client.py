@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 from . import config
 
@@ -121,6 +122,22 @@ def _run(subcommand: str, options: dict) -> dict:
         }
 
 
+def _run_with_retry(subcommand: str, options: dict, max_retries: int = 2) -> dict:
+    """带自动重试的 flyai 调用，遇到 429 限频时自动重试。"""
+    for attempt in range(max_retries + 1):
+        result = _run(subcommand, options)
+        # 检查是否限频错误
+        message = result.get("message", "")
+        if "429" in message or "Rate limit" in message:
+            if attempt < max_retries:
+                wait_time = 2 * (attempt + 1)  # 递增等待时间：2s, 4s
+                time.sleep(wait_time)
+                continue
+        # 成功或非限频错误，直接返回
+        return result
+    return result
+
+
 def extract_data(result: dict):
     """从 flyai 返回里取出正文。结构化查询返回 dict，ai-search 返回 str。"""
     return result.get("data") or ""
@@ -210,7 +227,7 @@ def format_structured(data, limit: int = 8) -> str:
 
 # ── 高层封装 ───────────────────────────────────────────────
 def ai_search(query: str) -> dict:
-    return _run("ai-search", {"query": query})
+    return _run_with_retry("ai-search", {"query": query})
 
 
 def parse_restaurants(text: str, limit: int = 3) -> list:
@@ -248,22 +265,22 @@ def search_hotel(
     sort=None, check_in_date=None, check_out_date=None,
     hotel_stars=None, hotel_bed_types=None, max_price=None,
 ) -> dict:
-    return _run("search-hotel", {k: v for k, v in locals().items() if v is not None})
+    return _run_with_retry("search-hotel", {k: v for k, v in locals().items() if v is not None})
 
 
 def search_poi(city_name=None, poi_level=None, keyword=None, category=None) -> dict:
-    return _run("search-poi", {k: v for k, v in locals().items() if v is not None})
+    return _run_with_retry("search-poi", {k: v for k, v in locals().items() if v is not None})
 
 
 def search_flight(
     origin=None, destination=None, dep_date=None, back_date=None,
     seat_class_name=None, max_price=None, sort_type=None,
 ) -> dict:
-    return _run("search-flight", {k: v for k, v in locals().items() if v is not None})
+    return _run_with_retry("search-flight", {k: v for k, v in locals().items() if v is not None})
 
 
 def search_train(
     origin=None, destination=None, dep_date=None, back_date=None,
     seat_class_name=None, max_price=None, sort_type=None,
 ) -> dict:
-    return _run("search-train", {k: v for k, v in locals().items() if v is not None})
+    return _run_with_retry("search-train", {k: v for k, v in locals().items() if v is not None})
