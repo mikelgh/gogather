@@ -1380,3 +1380,10 @@ def api_search(req: SearchRequest, user: dict = Depends(get_current_user)):
         return fn(**req.options)
     except TypeError as e:
         raise HTTPException(status_code=400, detail=f"参数错误: {e}")
+
+
+# HEAD 兼容：链接检查器/抓取器常先发 HEAD，FastAPI 的 APIRoute 不会自动放行
+for _route in app.router.routes:
+    _methods = getattr(_route, "methods", None)
+    if _methods and "GET" in _methods and "HEAD" not in _methods:
+        _methods.add("HEAD")
